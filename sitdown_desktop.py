@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Sitdown BBS desktop launcher. Standard-library Tkinter GUI."""
+"""The Empire State BBS desktop launcher. Standard-library Tkinter GUI."""
 import json
 import runpy
 import shutil
@@ -13,14 +13,14 @@ from sitdown_monitor import ServerSupervisor
 import zipfile
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-DATA = Path.home() / ".sitdown-bbs"
+DATA = Path.home() / ".empire-state-bbs"
 CONFIG = DATA / "launcher.json"
-THEME = {"background": "#121212", "panel": "#242424", "primary": "#C62828",
-         "connected": "#008C45", "text": "#F5F5F0", "highlight": "#F4B942"}
+THEME = {"background": "#172C46", "panel": "#213A55", "primary": "#C5A46D",
+         "connected": "#36513D", "text": "#F2E8D5", "highlight": "#E9BB43"}
 COMMANDS = [
-    ("/sitdown", "Main menu"), ("/help", "Quick help"),
-    ("/mail", "Check your mail"), ("/boards", "The Social Club"),
-    ("/fortune", "Jersey wisdom"), ("/tools", "Utilities"),
+    ("/empire", "Main menu"), ("/help", "Quick help"),
+    ("/mail", "Check your mail"), ("/boards", "The Bulletin Board"),
+    ("/fortune", "New York wisdom"), ("/tools", "Utilities"),
     ("/cancel", "Return to main menu"),
 ]
 
@@ -38,11 +38,11 @@ class SitdownApp:
         self.demo = tk.BooleanVar(value=False)
         self.connection = tk.StringVar(value="serial")
         self.address = tk.StringVar()
-        self.community = tk.StringVar(value="The Sitdown BBS")
-        self.welcome = tk.StringVar(value="Ayyy, pull up a chair. We gotta talk.")
+        self.community = tk.StringVar(value="The Empire State BBS")
+        self.welcome = tk.StringVar(value="AYO, welcome to the Empire State. One state. One network.")
         self.status = tk.StringVar(value="Stopped")
         self.colors = THEME
-        self.root.title("THE SITDOWN BBS | North Jersey Communications Division")
+        self.root.title("THE EMPIRE STATE BBS | New York State Communications Network")
         self.root.geometry("1080x800")
         self.root.minsize(900, 670)
         self.root.configure(bg=THEME["background"])
@@ -57,7 +57,7 @@ class SitdownApp:
                 data = json.loads(CONFIG.read_text(encoding="utf-8"))
                 self.connection.set(data.get("connection", "serial"))
                 self.address.set(data.get("address", ""))
-                self.community.set(data.get("community", "The Sitdown BBS"))
+                self.community.set(data.get("community", "The Empire State BBS"))
                 self.welcome.set(data.get("welcome", self.welcome.get()))
             except (ValueError, OSError):
                 pass
@@ -68,7 +68,7 @@ class SitdownApp:
             "connection": self.connection.get(), "address": self.address.get(),
             "community": self.community.get(), "welcome": self.welcome.get()
         }, indent=2), encoding="utf-8")
-        self.log("The Family Business: settings saved.")
+        self.log("Control Room: settings saved.")
 
     def build(self):
         c = self.colors
@@ -78,13 +78,13 @@ class SitdownApp:
         button = self.styled_button
         header = tk.Frame(self.root, bg=c["panel"], padx=22, pady=16)
         header.pack(fill="x", padx=18, pady=(14, 10))
-        tk.Label(header, text="THE SITDOWN BBS", font=("Helvetica", 26, "bold"),
+        tk.Label(header, text="THE EMPIRE STATE BBS", font=("Helvetica", 26, "bold"),
                  fg=c["highlight"], bg=c["panel"]).pack(anchor="w")
         tk.Label(header, text="NORTH JERSEY  •  COMMUNICATIONS DIVISION",
                  font=("Helvetica", 11, "bold"), fg=c["text"], bg=c["panel"]).pack(anchor="w")
         tk.Frame(self.root, bg=c["connected"], height=4).pack(fill="x", padx=18)
         tk.Frame(self.root, bg=c["primary"], height=4).pack(fill="x", padx=18, pady=(3, 0))
-        label(self.root, "Ayyy, pull up a chair. We gotta talk.", 12, c["highlight"]).pack(pady=(2, 12))
+        label(self.root, "AYO, welcome to the Empire State. One state. One network.", 12, c["highlight"]).pack(pady=(2, 12))
         panel = tk.Frame(self.root, bg=c["background"])
         panel.pack(fill="x", padx=20)
         tk.Radiobutton(panel, text="USB / Serial radio", variable=self.connection,
@@ -101,11 +101,11 @@ class SitdownApp:
         actions = tk.Frame(self.root, bg=c["background"])
         actions.pack(fill="x", padx=20, pady=12)
         for title, fn, color in [
-            ("Start the Sitdown", self.start, c["connected"]),
+            ("Start Empire State HQ", self.start, c["connected"]),
             ("Fuggedaboutit (Stop)", self.stop, c["primary"]),
             ("The Playbook", self.commands, c["panel"]),
-            ("The Family Business", self.settings, c["panel"]),
-            ("The Books", self.backup, c["panel"])
+            ("Control Room", self.settings, c["panel"]),
+            ("The Archives", self.backup, c["panel"])
         ]:
             button(actions, title, fn, color).pack(side="left", padx=(0, 8), pady=4)
         button(self.root, "Refresh USB Ports", self.list_ports, c["panel"]).pack(anchor="w", padx=20)
@@ -170,7 +170,7 @@ class SitdownApp:
         config = DATA / "config.ini" if getattr(sys, "frozen", False) else ROOT / "config.ini"
         if not config.exists() and getattr(sys, "frozen", False) and (ROOT / "example_config.ini").exists():
             shutil.copy2(ROOT / "example_config.ini", config)
-            self.log("Created config.ini in ~/.sitdown-bbs. Review it before connecting a radio.")
+            self.log("Created config.ini in ~/.empire-state-bbs. Review it before connecting a radio.")
         if not config.exists():
             messagebox.showerror("Need a Guy?", "Missing config.ini. Copy example_config.ini to config.ini and configure it first.")
             return
@@ -188,7 +188,7 @@ class SitdownApp:
             self.supervisor = ServerSupervisor(cmd, DATA if getattr(sys, "frozen", False) else ROOT)
             self.supervisor.start()
             self.status.set("Starting...")
-            self.log("Starting The Sitdown BBS...")
+            self.log("Starting The Empire State BBS...")
         except OSError as exc:
             self.supervisor = None
             self.status.set("Start failed")
@@ -251,7 +251,7 @@ class SitdownApp:
 
     def settings(self):
         win = tk.Toplevel(self.root)
-        win.title("The Family Business")
+        win.title("Control Room")
         win.configure(bg=THEME["background"])
         for name, var in [("Community name", self.community), ("Welcome message (local setting)", self.welcome)]:
             tk.Label(win, text=name, bg=THEME["background"], fg=THEME["text"]).pack(anchor="w", padx=20, pady=(12, 0))
@@ -264,14 +264,14 @@ class SitdownApp:
     def backup(self):
         DATA.mkdir(parents=True, exist_ok=True)
         destination = filedialog.asksaveasfilename(defaultextension=".zip",
-                     initialfile="sitdown-backup.zip", filetypes=[("Zip archive", "*.zip")])
+                     initialfile="empire-state-backup.zip", filetypes=[("Zip archive", "*.zip")])
         if not destination:
             return
         with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
             for path in [CONFIG, ROOT / "config.ini", *ROOT.glob("*.db")]:
                 if path.exists() and path.is_file():
                     archive.write(path, path.name)
-        self.log("The Books: backup saved. Treat backups as sensitive; they may contain messages and keys.")
+        self.log("The Archives: backup saved. Treat backups as sensitive; they may contain messages and keys.")
 
     def close(self):
         self.stop()
