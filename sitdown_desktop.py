@@ -36,6 +36,7 @@ class SitdownApp:
         self.node_count = tk.StringVar(value='Observed nodes: 0')
         self.uptime = tk.StringVar(value='Uptime: 0s')
         self.demo = tk.BooleanVar(value=False)
+        self.attitude = tk.StringVar(value="clean")
         self.connection = tk.StringVar(value="serial")
         self.address = tk.StringVar()
         self.community = tk.StringVar(value="The Empire State BBS")
@@ -59,6 +60,7 @@ class SitdownApp:
                 self.address.set(data.get("address", ""))
                 self.community.set(data.get("community", "The Empire State BBS"))
                 self.welcome.set(data.get("welcome", self.welcome.get()))
+                self.attitude.set(data.get("attitude", "clean") if data.get("attitude") in ("clean", "spicy", "unfiltered") else "clean")
             except (ValueError, OSError):
                 pass
 
@@ -66,7 +68,8 @@ class SitdownApp:
         DATA.mkdir(parents=True, exist_ok=True)
         CONFIG.write_text(json.dumps({
             "connection": self.connection.get(), "address": self.address.get(),
-            "community": self.community.get(), "welcome": self.welcome.get()
+            "community": self.community.get(), "welcome": self.welcome.get(),
+            "attitude": self.attitude.get()
         }, indent=2), encoding="utf-8")
         self.log("Control Room: settings saved.")
 
@@ -120,7 +123,19 @@ class SitdownApp:
                               wrap="word", relief="flat", state="disabled", height=17,
                               font=("Menlo", 12), padx=12, pady=10)
         self.output.pack(fill="both", expand=True, padx=20, pady=(12, 20))
-        self.log("Ready, pal. Pick a radio, or check Demo mode.")
+        self.log(self.attitude_message())
+
+    def attitude_message(self):
+        return {
+            "clean": "AYO! Welcome to the Empire State. Whaddya wanna do, boss?",
+            "spicy": "AYO! Welcome to New York. Pick a damn command already, we\u0027re busy over here!",
+            "unfiltered": "AYO! Welcome to the Empire State. Pick a fuckin\u0027 command, boss!",
+        }.get(self.attitude.get(), "AYO! Welcome to the Empire State.")
+
+    def set_attitude(self, value):
+        self.attitude.set(value)
+        self.save()
+        self.log(self.attitude_message())
 
     def styled_button(self, parent, text, command, color=None):
         # macOS Aqua ignores custom backgrounds on native Tk buttons,
@@ -164,6 +179,7 @@ class SitdownApp:
         if self.demo.get():
             self.status.set("Demo running — no radio")
             self.log("DEMO: No radio messages are sent.")
+            self.log(self.attitude_message())
             self.retry_count = 0
             return
         DATA.mkdir(parents=True, exist_ok=True)
@@ -257,6 +273,15 @@ class SitdownApp:
             tk.Label(win, text=name, bg=THEME["background"], fg=THEME["text"]).pack(anchor="w", padx=20, pady=(12, 0))
             tk.Entry(win, textvariable=var, width=55, bg=THEME["panel"], fg=THEME["text"],
                      insertbackground=THEME["text"]).pack(padx=20)
+        tk.Label(win, text="EMPIRE STATE ATTITUDE — applies only to local interface and demo text",
+                 bg=THEME["background"], fg=THEME["highlight"]).pack(padx=20, pady=(12, 4))
+        for value, title in [("clean", "Clean — Classic New York (default)"),
+                             ("spicy", "Spicy — A Little Mouthy"),
+                             ("unfiltered", "Unfiltered — Full New York Attitude")]:
+            tk.Radiobutton(win, text=title, variable=self.attitude, value=value,
+                           command=lambda v=value: self.set_attitude(v),
+                           bg=THEME["background"], fg=THEME["text"],
+                           selectcolor=THEME["panel"], anchor="w").pack(anchor="w", padx=20)
         tk.Label(win, text="Custom welcome is saved locally; radio reply integration is pending.",
                  bg=THEME["background"], fg=THEME["highlight"]).pack(padx=20, pady=10)
         self.styled_button(win, "Save", self.save, THEME["connected"]).pack(pady=12)
