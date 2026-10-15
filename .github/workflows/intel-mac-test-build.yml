@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sitdown-intel-${{ github.workflow }}-${{ github.ref }}
+  group: empire-intel-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -38,41 +38,41 @@ jobs:
         run: |
           python -m compileall -q sitdown_desktop.py sitdown_monitor.py
           python -m unittest discover -s tests -p 'test_sitdown_*.py'
-      - name: Generate Jersey app icon
+      - name: Generate Empire State app icon
         run: |
           python scripts/make_icon.py
           mkdir -p build/icon.iconset
           for size in 16 32 128 256 512; do
-            sips -z "$size" "$size" build/sitdown-icon.png --out "build/icon.iconset/icon_${size}x${size}.png" >/dev/null
+            sips -z "$size" "$size" build/empire-icon.png --out "build/icon.iconset/icon_${size}x${size}.png" >/dev/null
             double=$((size * 2))
-            sips -z "$double" "$double" build/sitdown-icon.png --out "build/icon.iconset/icon_${size}x${size}@2x.png" >/dev/null
+            sips -z "$double" "$double" build/empire-icon.png --out "build/icon.iconset/icon_${size}x${size}@2x.png" >/dev/null
           done
-          iconutil -c icns build/icon.iconset -o build/sitdown.icns
+          iconutil -c icns build/icon.iconset -o build/empire.icns
       - name: Package Intel Mac application
         run: |
           python -m PyInstaller --noconfirm --clean --windowed --onedir \
-            --name "The Sitdown BBS" \
-            --icon build/sitdown.icns \
+            --name "The Empire State BBS" \
+            --icon build/empire.icns \
             --add-data "example_config.ini:." \
             --collect-all meshtastic \
             --collect-all pubsub \
             sitdown_desktop.py
-          test -d "dist/The Sitdown BBS.app"
-          test "$(lipo -archs 'dist/The Sitdown BBS.app/Contents/MacOS/The Sitdown BBS')" = "x86_64"
+          test -d "dist/The Empire State BBS.app"
+          test "$(lipo -archs 'dist/The Empire State BBS.app/Contents/MacOS/The Empire State BBS')" = "x86_64"
       - name: Create unsigned test DMG
         run: |
           mkdir -p dmg-staging
-          cp -R "dist/The Sitdown BBS.app" dmg-staging/
+          cp -R "dist/The Empire State BBS.app" dmg-staging/
           ln -s /Applications dmg-staging/Applications
-          hdiutil create -volname "The Sitdown BBS TEST" \
-            -srcfolder dmg-staging -ov -format UDZO "The-Sitdown-BBS-Intel-Test.dmg"
-          shasum -a 256 "The-Sitdown-BBS-Intel-Test.dmg" > SHA256SUMS.txt
+          hdiutil create -volname "The Empire State BBS TEST" \
+            -srcfolder dmg-staging -ov -format UDZO "The-Empire-State-BBS-Intel-Test.dmg"
+          shasum -a 256 "The-Empire-State-BBS-Intel-Test.dmg" > SHA256SUMS.txt
       - name: Upload downloadable test build
         uses: actions/upload-artifact@v4
         with:
-          name: The-Sitdown-BBS-Intel-Mac-Test
+          name: The-Empire-State-BBS-Intel-Mac-Test
           path: |
-            The-Sitdown-BBS-Intel-Test.dmg
+            The-Empire-State-BBS-Intel-Test.dmg
             SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
