@@ -31,6 +31,18 @@ This project represents **all of New York State**, not just New York City: Weste
 - Configure independent GitHub Actions, testing, and releases for this repository.
 - Retain upstream attribution and GPLv3 licensing when source code is imported.
 
+
+## Opening the app on macOS
+
+After downloading the Intel Mac `.dmg` from [GitHub Releases](https://github.com/BaconDisk22/The-Empire-State-BBS/releases), install **The Empire State BBS** in Applications.
+
+1. Open **Applications** in Finder.
+2. **Control-click** **The Empire State BBS**.
+3. Select **Open**, then **Open** again if prompted.
+4. If macOS blocks it, check **System Settings → Privacy & Security → Open Anyway**.
+
+These steps address macOS security prompts for an unsigned app. If the icon bounces in the Dock but no window appears, that may indicate a startup failure rather than a security block; report the issue instead of repeatedly overriding security warnings.
+
 ## Source and licensing
 
 The working implementation will be adapted from [BaconDisk22/The-Sitdown-BBS](https://github.com/BaconDisk22/The-Sitdown-BBS), itself based on TC²-BBS. Preserve original copyright notices and GPLv3 license during migration.
