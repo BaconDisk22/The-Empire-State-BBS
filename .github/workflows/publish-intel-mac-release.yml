@@ -1,0 +1,116 @@
+name: Publish Intel Mac Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v0.1.0-beta.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sitdown-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  intel-mac-release:
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Determine release version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${INPUT_VERSION:-${GITHUB_REF_NAME}}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+            echo "Invalid version: $VERSION"; exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF_NAME" != "main" ]]; then
+            echo "Manual releases must run from main"; exit 1
+          fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyserial pyinstaller pillow
+      - name: Validate source and tests
+        run: |
+          test "$(uname -m)" = "x86_64"
+          python -m compileall -q sitdown_desktop.py sitdown_monitor.py command_handlers.py
+          python -m unittest discover -s tests -p 'test_sitdown_*.py'
+          python -m unittest discover -s tests -p 'test_jersey_replies.py'
+      - name: Generate original Jersey icon
+        run: |
+          python scripts/make_icon.py
+          mkdir -p build/icon.iconset
+          for size in 16 32 128 256 512; do
+            sips -z "$size" "$size" build/sitdown-icon.png --out "build/icon.iconset/icon_${size}x${size}.png" >/dev/null
+            double=$((size * 2))
+            sips -z "$double" "$double" build/sitdown-icon.png --out "build/icon.iconset/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns build/icon.iconset -o build/sitdown.icns
+      - name: Package app
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onedir \
+            --name "The Sitdown BBS" --icon build/sitdown.icns \
+            --add-data "example_config.ini:." \
+            --collect-all meshtastic --collect-all pubsub sitdown_desktop.py
+          test -d "dist/The Sitdown BBS.app"
+          lipo -archs "dist/The Sitdown BBS.app/Contents/MacOS/The Sitdown BBS" | grep -q x86_64
+      - name: Build release DMG and checksums
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          mkdir -p dmg-staging
+          cp -R "dist/The Sitdown BBS.app" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create -volname "The Sitdown BBS $VERSION" -srcfolder dmg-staging \
+            -ov -format UDZO "The-Sitdown-BBS-Intel-Mac-$VERSION.dmg"
+          shasum -a 256 "The-Sitdown-BBS-Intel-Mac-$VERSION.dmg" > SHA256SUMS.txt
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: The-Sitdown-BBS-Intel-Mac-Release
+          path: |
+            The-Sitdown-BBS-Intel-Mac-*.dmg
+            SHA256SUMS.txt
+          retention-days: 30
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLAGS=()
+          if [[ "$PRERELEASE" == "true" ]]; then FLAGS+=(--prerelease); fi
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" "The-Sitdown-BBS-Intel-Mac-$VERSION.dmg" SHA256SUMS.txt --clobber
+          else
+            gh release create "$VERSION" "The-Sitdown-BBS-Intel-Mac-$VERSION.dmg" SHA256SUMS.txt \
+              --target "$GITHUB_SHA" --title "The Sitdown BBS $VERSION (Intel Mac)" \
+              --notes "Unsigned, unnotarized Intel Mac build. Development testing recommended. See INTEL_MAC_TEST_BUILDS.md for installation instructions." \
+              "${FLAGS[@]}"
+          fi

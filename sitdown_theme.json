@@ -1,0 +1,21 @@
+{
+  "name": "The Sitdown BBS",
+  "subtitle": "North Jersey Communications Division",
+  "tagline": "Ayyy, pull up a chair. We gotta talk.",
+  "colors": {
+    "background": "#121212",
+    "panel": "#242424",
+    "primary": "#C62828",
+    "connected": "#008C45",
+    "text": "#F5F5F0",
+    "highlight": "#F4B942"
+  },
+  "labels": {
+    "start": "Start the Sitdown",
+    "stop": "Fuggedaboutit",
+    "commands": "The Playbook",
+    "settings": "The Family Business",
+    "backup": "The Books",
+    "connection_help": "Need a Guy?"
+  }
+}

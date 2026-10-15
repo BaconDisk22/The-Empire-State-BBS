@@ -1,0 +1,18 @@
+name: The Sitdown BBS checks
+on:
+  push:
+    branches: [main, feature/the-sitdown-branding, feature/phase2-radio-monitoring]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check Python syntax
+        run: python -m compileall -q sitdown_desktop.py sitdown_commands.py sitdown_monitor.py message_processing.py
+      - name: Unit tests
+        run: python -m unittest discover -s tests -p 'test_sitdown_*.py'
