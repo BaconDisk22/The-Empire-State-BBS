@@ -80,7 +80,7 @@ class SitdownApp:
         header.pack(fill="x", padx=18, pady=(14, 10))
         tk.Label(header, text="THE EMPIRE STATE BBS", font=("Helvetica", 26, "bold"),
                  fg=c["highlight"], bg=c["panel"]).pack(anchor="w")
-        tk.Label(header, text="NORTH JERSEY  •  COMMUNICATIONS DIVISION",
+        tk.Label(header, text="NEW YORK STATE  •  COMMUNICATIONS DIVISION",
                  font=("Helvetica", 11, "bold"), fg=c["text"], bg=c["panel"]).pack(anchor="w")
         tk.Frame(self.root, bg=c["connected"], height=4).pack(fill="x", padx=18)
         tk.Frame(self.root, bg=c["primary"], height=4).pack(fill="x", padx=18, pady=(3, 0))
