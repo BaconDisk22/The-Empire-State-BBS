@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: sitdown-readme-screenshot
+  group: empire-readme-screenshot
   cancel-in-progress: true
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sitdown-desktop-demo-screenshot
+          name: empire-desktop-demo-screenshot
           path: docs/images/desktop-preview-demo.png
           if-no-files-found: error
       - name: Update README image on main

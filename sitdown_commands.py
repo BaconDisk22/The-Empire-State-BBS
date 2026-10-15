@@ -6,15 +6,19 @@ contents (including text beginning with a slash) remain unchanged.
 
 SHORTCUTS = {
     "/sitdown": "x",
+    "/empire": "x",
+    "/ny": "x",
     "/menu": "x",
     "/cancel": "x",
     "/help": "q",
     "/ayyy": "q",
+    "/ayo": "q",
     "/mail": "cm",
     "/inbox": "cm",
     "/fortune": "f",
     "/boards": "b",
     "/socialclub": "b",
+    "/bulletin": "b",
     "/tools": "u",
     "/utilities": "u",
 }
@@ -33,6 +37,6 @@ def resolve_shortcut(message, state=None):
         return None
     state_command = (state or {}).get("command")
     if state_command in {"BULLETIN_POST", "BULLETIN_POST_CONTENT", "MAIL", "BULLETIN_READ"}:
-        if key not in {"/sitdown", "/menu", "/cancel", "/help"}:
+        if key not in {"/sitdown", "/empire", "/ny", "/menu", "/cancel", "/help"}:
             return None
     return command
