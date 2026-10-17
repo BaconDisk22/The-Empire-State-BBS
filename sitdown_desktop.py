@@ -45,6 +45,8 @@ class SitdownApp:
         self.community = tk.StringVar(value="The Empire State BBS")
         self.welcome = tk.StringVar(value="AYO, welcome to the Empire State. One state. One network.")
         self.status = tk.StringVar(value="Stopped")
+        self.last_serial_scan = 0.0
+        self.last_serial_ports = None
         self.colors = THEME
         self.root.title("THE EMPIRE STATE BBS | New York State Communications Network")
         self.root.geometry("1220x830")
@@ -598,12 +600,43 @@ class SitdownApp:
         try:
             ports = available_serial_ports()
             self.log("USB ports: " + (", ".join(ports) if ports else "None detected"))
-            if len(ports) == 1 and self.connection.get() == "serial":
+            if len(ports) == 1 and self.connection.get() == "serial" and not self.address.get().strip():
                 self.address.set(ports[0])
+                self.log("Automatically selected the only available USB port.")
         except ImportError:
             self.log("pyserial is missing. Install requirements.txt.")
         except OSError as exc:
             self.log(f"USB enumeration failed: {exc}")
+
+    def watch_serial_ports(self):
+        """Observe USB changes without opening a port or interrupting a session."""
+        if self.demo.get() or self.connection.get() != "serial":
+            return
+        try:
+            ports = available_serial_ports()
+        except (ImportError, OSError) as exc:
+            if self.last_serial_ports is not None:
+                self.log(f"USB scan unavailable: {exc}")
+                self.last_serial_ports = None
+            return
+        previous = self.last_serial_ports
+        self.last_serial_ports = tuple(ports)
+        if previous is None:
+            return
+        added = sorted(set(ports) - set(previous))
+        removed = sorted(set(previous) - set(ports))
+        if added:
+            self.log("USB attached: " + ", ".join(added))
+        if removed:
+            self.log("USB disconnected: " + ", ".join(removed))
+        selected = self.address.get().strip()
+        if selected and selected in removed:
+            self.status.set("USB device removed — radio connection unverified")
+            self.log("Selected USB radio disappeared. Stop and restart after reconnecting.")
+        if (not selected and len(ports) == 1 and
+                not (self.supervisor and self.supervisor.running)):
+            self.address.set(ports[0])
+            self.log("Auto-selected newly detected USB port: " + ports[0])
 
     def check_radio_target(self):
         """Non-transmitting preflight; does not prove a Meshtastic session."""
@@ -669,6 +702,10 @@ class SitdownApp:
             self.log(f"Start failed: {exc}")
 
     def poll(self):
+        now = time.monotonic()
+        if now - self.last_serial_scan >= 5.0:
+            self.last_serial_scan = now
+            self.watch_serial_ports()
         monitor = self.supervisor
         if monitor:
             for kind, value in monitor.poll_events():
