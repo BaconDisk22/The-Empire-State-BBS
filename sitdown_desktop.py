@@ -298,36 +298,50 @@ class SitdownApp:
                                    "date", "subject", "content"))
 
     def show_locals(self):
+        """Display only nodes actually observed in BBS process logs."""
+        from tkinter import ttk
         win = tk.Toplevel(self.root)
-        win.title("The Locals | Observed Radio Nodes")
-        win.geometry("610x430")
+        win.title("The Locals | Observed Meshtastic Nodes")
+        win.geometry("800x510")
         win.configure(bg=THEME["background"])
         tk.Label(win, text="THE LOCALS", bg=THEME["background"],
                  fg=THEME["highlight"], font=("Helvetica", 22, "bold")).pack(
-                     anchor="w", padx=20, pady=(20, 4))
-        tk.Label(win, text="Nodes observed in this BBS process's logs only. "
-                 "Not a full mesh directory or proof of current connectivity.",
-                 bg=THEME["background"], fg=THEME["text"],
-                 wraplength=550, justify="left").pack(anchor="w", padx=20, pady=(0, 12))
-        listing = tk.Text(win, bg=THEME["panel"], fg=THEME["text"],
-                          font=("Menlo", 11), relief="flat", height=12)
-        listing.pack(fill="both", expand=True, padx=20, pady=6)
+                     anchor="w", padx=20, pady=(18, 4))
+        tk.Label(win, text="Observed messages in the current BBS session. "
+                 "Last seen means a log event, not a verified online status. "
+                 "Signal and battery telemetry are unavailable in these logs.",
+                 bg=THEME["background"], fg=THEME["text"], wraplength=740,
+                 justify="left").pack(anchor="w", padx=20, pady=(0, 12))
+        summary = tk.StringVar(value="Loading observed nodes...")
+        tk.Label(win, textvariable=summary, bg=THEME["background"],
+                 fg=THEME["highlight"], font=("Menlo", 11, "bold")).pack(
+                     anchor="w", padx=20, pady=(0, 8))
+        columns = ("node", "name", "seen", "age")
+        listing = ttk.Treeview(win, columns=columns, show="headings", height=13)
+        for key, label, width in (("node", "Node ID", 150),
+                                  ("name", "Observed Name", 210),
+                                  ("seen", "Last Log Event", 175),
+                                  ("age", "Elapsed", 110)):
+            listing.heading(key, text=label)
+            listing.column(key, width=width, stretch=True)
+        listing.pack(fill="both", expand=True, padx=20, pady=5)
         def refresh():
-            listing.delete("1.0", "end")
-            nodes = self.supervisor.nodes if self.supervisor else {}
-            if not nodes:
-                listing.insert("end", "No nodes observed in this session.\\n"
-                               "Start a real BBS radio connection to collect activity.")
-            else:
-                for node_id, (name, last_seen) in sorted(nodes.items()):
-                    listing.insert("end", f"{name}  |  {node_id}  |  "
-                                   f"Last log: {time.strftime('%H:%M:%S', time.localtime(last_seen))}\\n")
-            listing.configure(state="disabled")
-        def update_listing():
-            listing.configure(state="normal")
-            refresh()
-        self.styled_button(win, "REFRESH OBSERVED NODES", update_listing,
-                           THEME["primary"]).pack(pady=10)
+            for item in listing.get_children():
+                listing.delete(item)
+            nodes = dict(self.supervisor.nodes) if self.supervisor else {}
+            now = time.time()
+            for node_id, (name, last_seen) in sorted(
+                    nodes.items(), key=lambda item: item[1][1], reverse=True):
+                elapsed = max(0, int(now - last_seen))
+                age = f"{elapsed}s" if elapsed < 60 else (
+                    f"{elapsed // 60}m" if elapsed < 3600 else f"{elapsed // 3600}h")
+                listing.insert("", "end", values=(
+                    node_id, name, time.strftime("%Y-%m-%d %H:%M:%S",
+                                                  time.localtime(last_seen)), age))
+            summary.set(f"Observed this session: {len(nodes)} node(s)"
+                        if nodes else "No nodes observed in the current session")
+        self.styled_button(win, "REFRESH NODE ACTIVITY", refresh,
+                           THEME["primary"]).pack(pady=12)
         refresh()
 
     def show_radio(self):
