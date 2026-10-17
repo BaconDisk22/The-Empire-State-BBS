@@ -12,6 +12,7 @@ import time
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from sitdown_monitor import ServerSupervisor
+from radio_health import radio_health_label
 from radio_diagnostics import available_serial_ports, check_serial_target, check_tcp_target
 import zipfile
 
@@ -45,6 +46,7 @@ class SitdownApp:
         self.community = tk.StringVar(value="The Empire State BBS")
         self.welcome = tk.StringVar(value="AYO, welcome to the Empire State. One state. One network.")
         self.status = tk.StringVar(value="Stopped")
+        self.radio_health = tk.StringVar(value="Radio health: unverified")
         self.last_serial_scan = 0.0
         self.last_serial_ports = None
         self.waiting_for_usb = False
@@ -103,6 +105,7 @@ class SitdownApp:
         self.panel_heading(left, "THE EMPIRE CONNECTION")
         tk.Label(left, textvariable=self.status, bg=panel, fg=c["connected"],
                  font=("Menlo", 12, "bold")).pack(anchor="w", pady=6)
+        tk.Label(left, textvariable=self.radio_health, bg=panel, fg=gold).pack(anchor="w")
         tk.Label(left, textvariable=self.node_count, bg=panel, fg=cream).pack(anchor="w")
         tk.Label(left, textvariable=self.uptime, bg=panel, fg=cream).pack(anchor="w")
         for name, value in [("USB / Serial radio", "serial"), ("Network / TCP radio", "tcp")]:
@@ -720,6 +723,12 @@ class SitdownApp:
             self.last_serial_scan = now
             self.watch_serial_ports()
         monitor = self.supervisor
+        present = None
+        if self.connection.get() == "serial" and self.address.get().strip() and self.last_serial_ports is not None:
+            present = self.address.get().strip() in self.last_serial_ports
+        self.radio_health.set(radio_health_label(self.demo.get(),
+            bool(monitor and monitor.running), bool(monitor and monitor.ready),
+            present, self.waiting_for_usb))
         if monitor:
             for kind, value in monitor.poll_events():
                 if kind == "log":
