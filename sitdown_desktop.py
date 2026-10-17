@@ -288,10 +288,60 @@ class SitdownApp:
                            THEME["primary"]).pack(pady=10)
         refresh()
 
+    def compose_local_mail_draft(self):
+        """Save an operator draft locally, never to the BBS mail database."""
+        win = tk.Toplevel(self.root)
+        win.title("The Grapevine | Local Draft")
+        win.geometry("650x520")
+        win.configure(bg=THEME["background"])
+        tk.Label(win, text="NEW LOCAL MAIL DRAFT", bg=THEME["background"],
+                 fg=THEME["highlight"], font=("Helvetica", 19, "bold")).pack(
+                     anchor="w", padx=18, pady=(16, 6))
+        tk.Label(win, text="Saved only on this Mac. Not sent over the mesh.",
+                 bg=THEME["background"], fg=THEME["text"]).pack(
+                     anchor="w", padx=18)
+        fields = {}
+        for name in ("Recipient node ID", "Subject"):
+            tk.Label(win, text=name, bg=THEME["background"],
+                     fg=THEME["highlight"]).pack(anchor="w", padx=18, pady=(12, 2))
+            value = tk.StringVar()
+            tk.Entry(win, textvariable=value, bg=THEME["panel"],
+                     fg=THEME["text"], insertbackground=THEME["text"]).pack(
+                         fill="x", padx=18)
+            fields[name] = value
+        tk.Label(win, text="Message", bg=THEME["background"],
+                 fg=THEME["highlight"]).pack(anchor="w", padx=18, pady=(12, 2))
+        body = tk.Text(win, height=9, bg=THEME["panel"], fg=THEME["text"],
+                       insertbackground=THEME["text"], wrap="word")
+        body.pack(fill="both", expand=True, padx=18)
+        def save_draft():
+            recipient = fields["Recipient node ID"].get().strip()
+            subject = fields["Subject"].get().strip()
+            message = body.get("1.0", "end-1c").strip()
+            if not recipient or not subject or not message:
+                messagebox.showerror("Draft incomplete",
+                                     "Recipient, subject and message are required.",
+                                     parent=win)
+                return
+            drafts = DATA / "drafts"
+            drafts.mkdir(parents=True, exist_ok=True)
+            import uuid
+            draft = drafts / (uuid.uuid4().hex + ".json")
+            draft.write_text(json.dumps({"recipient": recipient,
+                                         "subject": subject, "message": message},
+                                        indent=2), encoding="utf-8")
+            self.log("Saved a local mail draft; nothing was transmitted.")
+            messagebox.showinfo("Draft saved", "Saved locally. No radio message sent.",
+                                parent=win)
+            win.destroy()
+        self.styled_button(win, "SAVE LOCAL DRAFT (DO NOT SEND)", save_draft,
+                           THEME["primary"]).pack(pady=12)
+
     def show_messages(self):
         self.browse_local_records("The Grapevine / Local Mail", "mail",
                                   ("id", "sender_short_name", "recipient",
                                    "date", "subject", "content"))
+        self.compose_local_mail_draft()
 
     def show_bulletin(self):
         self.browse_local_records("The Bulletin / Local Posts", "bulletins",
