@@ -76,12 +76,11 @@ class SitdownApp:
     def build(self):
         c = self.colors
         bg, panel, gold, cream = c["background"], c["panel"], c["highlight"], c["text"]
-        header = tk.Frame(self.root, bg=panel, padx=22, pady=14)
+        header = tk.Canvas(self.root, height=165, bg=panel, highlightthickness=0)
         header.pack(fill="x", padx=14, pady=(12, 5))
-        tk.Label(header, text="THE EMPIRE STATE BBS", font=("Helvetica", 30, "bold"),
-                 fg=gold, bg=panel).pack(anchor="w")
-        tk.Label(header, text="FROM THE FIVE BOROUGHS TO THE NORTH COUNTRY  •  ALL 62 COUNTIES",
-                 font=("Menlo", 11, "bold"), fg=cream, bg=panel).pack(anchor="w")
+        self.header_canvas = header
+        header.bind("<Configure>", self.draw_skyline_header)
+
         nav = tk.Frame(self.root, bg=bg)
         nav.pack(fill="x", padx=14, pady=6)
         for name, action in [
@@ -149,6 +148,49 @@ class SitdownApp:
         self.log("EMPIRE HQ • Demo is clearly labeled. No simulated connections.")
         tk.Label(self.root, text="NEW YORK  •  62 COUNTIES  •  ONE NETWORK",
                  bg=bg, fg=gold, font=("Menlo", 10, "bold")).pack(pady=(0, 8))
+
+    def draw_skyline_header(self, event=None):
+        """Vector skyline banner, responsive to window size; no external image files."""
+        canvas = self.header_canvas
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 1000)
+        height = 165
+        bg, gold = self.colors["panel"], self.colors["highlight"]
+        canvas.create_rectangle(0, 0, width, height, fill=bg, outline="")
+        # Midnight skyline silhouette and illuminated windows.
+        buildings = [(0, 104, 65, 155), (69, 79, 120, 155), (126, 100, 174, 155),
+                     (181, 62, 225, 155), (233, 91, 288, 155), (298, 73, 351, 155),
+                     (359, 102, 418, 155), (428, 84, 481, 155)]
+        right_start = width - 490
+        for x1, y1, x2, y2 in buildings:
+            for offset in (0, right_start):
+                x1o, x2o = x1 + offset, x2 + offset
+                canvas.create_rectangle(x1o, y1, x2o, y2, fill="#203A4B", outline="")
+                for wx in range(x1o + 9, x2o - 5, 16):
+                    for wy in range(y1 + 10, y2 - 7, 19):
+                        canvas.create_rectangle(wx, wy, wx + 4, wy + 7,
+                                                fill="#987B45", outline="")
+        # Empire State Building at the right, drawn as scalable vector art.
+        center = width - 185
+        canvas.create_rectangle(center - 32, 49, center + 32, 155,
+                                fill="#B58C48", outline="")
+        canvas.create_polygon(center - 42, 52, center + 42, 52,
+                              center + 26, 35, center - 26, 35, fill=gold)
+        canvas.create_rectangle(center - 12, 17, center + 12, 35, fill=gold, outline="")
+        canvas.create_line(center, 3, center, 17, fill="#FFE7A4", width=4)
+        for wy in range(65, 145, 17):
+            for wx in (center - 19, center, center + 19):
+                canvas.create_rectangle(wx - 3, wy, wx + 3, wy + 9,
+                                        fill="#172330", outline="")
+        canvas.create_rectangle(0, 154, width, 160, fill=gold, outline="")
+        canvas.create_text(25, 24, anchor="nw", text="THE EMPIRE STATE BBS",
+                           fill=gold, font=("Helvetica", 29, "bold"))
+        canvas.create_text(27, 79, anchor="nw",
+                           text="FROM THE FIVE BOROUGHS TO THE NORTH COUNTRY",
+                           fill="#F5EAD4", font=("Menlo", 12, "bold"))
+        canvas.create_text(27, 108, anchor="nw",
+                           text="NEW YORK STATEWIDE MESH  •  62 COUNTIES  •  ONE NETWORK",
+                           fill=gold, font=("Menlo", 10, "bold"))
 
     def panel_heading(self, parent, title):
         tk.Label(parent, text=title, bg=self.colors["panel"],
