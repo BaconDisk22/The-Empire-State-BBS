@@ -15,8 +15,8 @@ import zipfile
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 DATA = Path.home() / ".empire-state-bbs"
 CONFIG = DATA / "launcher.json"
-THEME = {"background": "#172C46", "panel": "#213A55", "primary": "#C5A46D",
-         "connected": "#36513D", "text": "#F2E8D5", "highlight": "#E9BB43"}
+THEME = {"background": "#061018", "panel": "#101D29", "primary": "#B88A35",
+         "connected": "#1CC86A", "text": "#F5EAD4", "highlight": "#F2BE51"}
 COMMANDS = [
     ("/empire", "Main menu"), ("/help", "Quick help"),
     ("/mail", "Check your mail"), ("/boards", "The Bulletin Board"),
@@ -44,8 +44,8 @@ class SitdownApp:
         self.status = tk.StringVar(value="Stopped")
         self.colors = THEME
         self.root.title("THE EMPIRE STATE BBS | New York State Communications Network")
-        self.root.geometry("1080x800")
-        self.root.minsize(900, 670)
+        self.root.geometry("1220x830")
+        self.root.minsize(1040, 720)
         self.root.configure(bg=THEME["background"])
         self.load()
         self.build()
@@ -75,55 +75,111 @@ class SitdownApp:
 
     def build(self):
         c = self.colors
-        def label(parent, text, size=11, color=None):
-            return tk.Label(parent, text=text, font=("Helvetica", size, "bold"),
-                            fg=color or c["text"], bg=c["background"])
-        button = self.styled_button
-        header = tk.Frame(self.root, bg=c["panel"], padx=22, pady=16)
-        header.pack(fill="x", padx=18, pady=(14, 10))
-        tk.Label(header, text="THE EMPIRE STATE BBS", font=("Helvetica", 26, "bold"),
-                 fg=c["highlight"], bg=c["panel"]).pack(anchor="w")
-        tk.Label(header, text="NEW YORK STATE  •  COMMUNICATIONS DIVISION",
-                 font=("Helvetica", 11, "bold"), fg=c["text"], bg=c["panel"]).pack(anchor="w")
-        tk.Frame(self.root, bg=c["connected"], height=4).pack(fill="x", padx=18)
-        tk.Frame(self.root, bg=c["primary"], height=4).pack(fill="x", padx=18, pady=(3, 0))
-        label(self.root, "AYO, welcome to the Empire State. One state. One network.", 12, c["highlight"]).pack(pady=(2, 12))
-        panel = tk.Frame(self.root, bg=c["background"])
-        panel.pack(fill="x", padx=20)
-        tk.Radiobutton(panel, text="USB / Serial radio", variable=self.connection,
-                       value="serial", bg=c["background"], fg=c["text"], selectcolor=c["panel"]).pack(side="left")
-        tk.Radiobutton(panel, text="Network radio", variable=self.connection,
-                       value="tcp", bg=c["background"], fg=c["text"], selectcolor=c["panel"]).pack(side="left")
-        tk.Checkbutton(panel, text="Demo mode (no radio)", variable=self.demo,
-                       bg=c["background"], fg=c["highlight"], selectcolor=c["panel"]).pack(side="right")
-        tk.Checkbutton(panel, text="Restart on crash", variable=self.auto_restart,
-                       bg=c["background"], fg=c["highlight"], selectcolor=c["panel"]).pack(side="right")
-        label(self.root, "Serial port (optional) or radio IP / hostname", 10).pack(anchor="w", padx=20, pady=(8, 2))
-        tk.Entry(self.root, textvariable=self.address, bg=c["panel"], fg=c["text"],
-                 insertbackground=c["text"], relief="flat", font=("Helvetica", 12)).pack(fill="x", padx=20, ipady=8)
-        actions = tk.Frame(self.root, bg=c["background"])
-        actions.pack(fill="x", padx=20, pady=12)
-        for title, fn, color in [
-            ("Start Empire State HQ", self.start, c["connected"]),
-            ("Fuggedaboutit (Stop)", self.stop, c["primary"]),
-            ("The Playbook", self.commands, c["panel"]),
-            ("Control Room", self.settings, c["panel"]),
-            ("The Archives", self.backup, c["panel"])
+        bg, panel, gold, cream = c["background"], c["panel"], c["highlight"], c["text"]
+        header = tk.Frame(self.root, bg=panel, padx=22, pady=14)
+        header.pack(fill="x", padx=14, pady=(12, 5))
+        tk.Label(header, text="THE EMPIRE STATE BBS", font=("Helvetica", 30, "bold"),
+                 fg=gold, bg=panel).pack(anchor="w")
+        tk.Label(header, text="FROM THE FIVE BOROUGHS TO THE NORTH COUNTRY  •  ALL 62 COUNTIES",
+                 font=("Menlo", 11, "bold"), fg=cream, bg=panel).pack(anchor="w")
+        nav = tk.Frame(self.root, bg=bg)
+        nav.pack(fill="x", padx=14, pady=6)
+        for name, action in [
+            ("EMPIRE HQ", self.show_home), ("THE GRAPEVINE", self.commands),
+            ("THE BULLETIN", self.show_bulletin), ("THE LOCALS", self.show_locals),
+            ("THE EMPIRE CONNECTION", self.show_radio), ("SETTINGS", self.settings),
+            ("ABOUT", self.show_about)
         ]:
-            button(actions, title, fn, color).pack(side="left", padx=(0, 8), pady=4)
-        button(self.root, "Refresh USB Ports", self.list_ports, c["panel"]).pack(anchor="w", padx=20)
-        label(self.root, "THE WIRE  •  LIVE STATUS", 12, c["highlight"]).pack(anchor="w", padx=20)
-        tk.Label(self.root, textvariable=self.status, bg=c["background"],
-                 fg=c["connected"], font=("Helvetica", 12, "bold")).pack(anchor="w", padx=20)
-        label(self.root, "NODES OBSERVED IN RADIO TRAFFIC", 10, c["highlight"]).pack(anchor="w", padx=20)
-        tk.Label(self.root, textvariable=self.node_count, bg=c["background"], fg=c["text"]).pack(anchor="w", padx=20)
-        tk.Label(self.root, textvariable=self.uptime, bg=c["background"], fg=c["text"]).pack(anchor="w", padx=20)
-        label(self.root, "THE BACKROOM  •  SERVER ACTIVITY", 12, c["highlight"]).pack(anchor="w", padx=20, pady=(10, 0))
-        self.output = tk.Text(self.root, bg=c["panel"], fg=c["text"], insertbackground=c["text"],
-                              wrap="word", relief="flat", state="disabled", height=17,
-                              font=("Menlo", 12), padx=12, pady=10)
-        self.output.pack(fill="both", expand=True, padx=20, pady=(12, 20))
+            self.styled_button(nav, name, action, panel).pack(side="left", padx=(0, 5))
+        cards = tk.Frame(self.root, bg=bg)
+        cards.pack(fill="x", padx=14, pady=6)
+        left = tk.Frame(cards, bg=panel, padx=13, pady=12)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        self.panel_heading(left, "THE EMPIRE CONNECTION")
+        tk.Label(left, textvariable=self.status, bg=panel, fg=c["connected"],
+                 font=("Menlo", 12, "bold")).pack(anchor="w", pady=6)
+        tk.Label(left, textvariable=self.node_count, bg=panel, fg=cream).pack(anchor="w")
+        tk.Label(left, textvariable=self.uptime, bg=panel, fg=cream).pack(anchor="w")
+        for name, value in [("USB / Serial radio", "serial"), ("Network / TCP radio", "tcp")]:
+            tk.Radiobutton(left, text=name, variable=self.connection, value=value,
+                           bg=panel, fg=cream, selectcolor=bg).pack(anchor="w")
+        tk.Label(left, text="Serial port / TCP host", bg=panel, fg=gold).pack(anchor="w")
+        tk.Entry(left, textvariable=self.address, bg=bg, fg=cream,
+                 insertbackground=cream, relief="flat").pack(fill="x", ipady=6, pady=4)
+        self.styled_button(left, "FIND USB PORTS", self.list_ports, bg).pack(fill="x", pady=5)
+        center = tk.Frame(cards, bg=panel, padx=13, pady=12)
+        center.pack(side="left", fill="both", expand=True, padx=5)
+        self.panel_heading(center, "BBS SERVER")
+        tk.Label(center, text="Actual server status is shown at left.",
+                 bg=panel, fg=cream).pack(anchor="w", pady=7)
+        tk.Checkbutton(center, text="DEMO MODE (NO RADIO)", variable=self.demo,
+                       bg=panel, fg=gold, selectcolor=bg).pack(anchor="w")
+        tk.Checkbutton(center, text="Restart on crash", variable=self.auto_restart,
+                       bg=panel, fg=cream, selectcolor=bg).pack(anchor="w")
+        self.styled_button(center, "START BBS SERVER", self.start, "#166F43").pack(fill="x", pady=(14, 5))
+        self.styled_button(center, "STOP SERVER", self.stop, "#9A302A").pack(fill="x", pady=5)
+        self.styled_button(center, "THE ARCHIVES", self.backup, bg).pack(fill="x", pady=5)
+        right = tk.Frame(cards, bg=panel, padx=13, pady=12)
+        right.pack(side="left", fill="both", expand=True, padx=(5, 0))
+        self.panel_heading(right, "EMPIRE STATE ATTITUDE")
+        tk.Label(right, text="Turn up the New York. Clean by default.",
+                 bg=panel, fg=cream).pack(anchor="w", pady=7)
+        for value, name in [("clean", "CLEAN"), ("spicy", "SPICY"), ("unfiltered", "UNCENSORED")]:
+            tk.Radiobutton(right, text=name, variable=self.attitude, value=value,
+                           command=lambda v=value: self.set_attitude(v),
+                           bg=panel, fg=gold, selectcolor=bg).pack(anchor="w")
+        tk.Label(right, text="LOCAL PREVIEW • NOT TRANSMITTED", bg=panel,
+                 fg=gold, font=("Menlo", 9)).pack(anchor="w", pady=(8, 0))
+        self.preview = tk.Label(right, text=self.attitude_message(), bg=bg,
+                                fg=cream, font=("Menlo", 10), wraplength=290,
+                                justify="left", padx=8, pady=8)
+        self.preview.pack(fill="x", pady=5)
+        logpanel = tk.Frame(self.root, bg=panel, padx=13, pady=11)
+        logpanel.pack(fill="both", expand=True, padx=14, pady=(5, 10))
+        loghead = tk.Frame(logpanel, bg=panel)
+        loghead.pack(fill="x")
+        tk.Label(loghead, text="UNDER THE HOOD  /  SERVER LOG", bg=panel,
+                 fg=gold, font=("Menlo", 12, "bold")).pack(side="left")
+        self.styled_button(loghead, "CLEAR LOG", self.clear_log, bg).pack(side="right")
+        self.output = tk.Text(logpanel, bg="#030A10", fg="#8BE0A0",
+                              insertbackground=cream, wrap="word", relief="flat",
+                              state="disabled", height=14, font=("Menlo", 11), padx=10, pady=8)
+        self.output.pack(fill="both", expand=True, pady=(7, 0))
         self.log(self.attitude_message())
+        self.log("EMPIRE HQ • Demo is clearly labeled. No simulated connections.")
+        tk.Label(self.root, text="NEW YORK  •  62 COUNTIES  •  ONE NETWORK",
+                 bg=bg, fg=gold, font=("Menlo", 10, "bold")).pack(pady=(0, 8))
+
+    def panel_heading(self, parent, title):
+        tk.Label(parent, text=title, bg=self.colors["panel"],
+                 fg=self.colors["highlight"], font=("Menlo", 12, "bold")).pack(anchor="w")
+
+    def clear_log(self):
+        self.output.configure(state="normal")
+        self.output.delete("1.0", "end")
+        self.output.configure(state="disabled")
+
+    def show_home(self):
+        self.log("EMPIRE HQ: You're already on the dashboard.")
+
+    def show_bulletin(self):
+        self.log("THE BULLETIN: DM /boards to your BBS radio to browse bulletins.")
+        self.commands()
+
+    def show_locals(self):
+        count = len(self.supervisor.nodes) if self.supervisor else 0
+        messagebox.showinfo("The Locals", f"Observed nodes this session: {count}.\\n"
+                            "This is not a complete network directory.")
+
+    def show_radio(self):
+        self.log("THE EMPIRE CONNECTION: Choose USB or TCP and start the BBS.")
+        self.list_ports()
+
+    def show_about(self):
+        messagebox.showinfo("The Empire State BBS",
+                            "New York statewide Meshtastic BBS.\\n"
+                            "From the Five Boroughs to the North Country.\\n"
+                            "Demo mode never connects or transmits.")
 
     def attitude_message(self):
         return {
@@ -135,15 +191,17 @@ class SitdownApp:
     def set_attitude(self, value):
         self.attitude.set(value)
         self.save()
+        if hasattr(self, "preview"):
+            self.preview.configure(text=self.attitude_message())
         self.log(self.attitude_message())
 
     def styled_button(self, parent, text, command, color=None):
         # macOS Aqua ignores custom backgrounds on native Tk buttons,
         # producing white-on-white labels. Use a keyboard-accessible Label.
         background = color or self.colors["primary"]
-        control = tk.Label(parent, text=text, bg=background, fg="#FFFFFF",
-                           padx=13, pady=10, cursor="hand2",
-                           font=("Helvetica", 12, "bold"), relief="flat",
+        control = tk.Label(parent, text=text, bg=background, fg="#F5EAD4",
+                           padx=9, pady=9, cursor="hand2",
+                           font=("Helvetica", 10, "bold"), relief="flat",
                            highlightthickness=2, highlightbackground=self.colors["background"],
                            takefocus=True)
         control.bind("<Button-1>", lambda _event: command())
