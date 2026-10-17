@@ -23,11 +23,30 @@ class ServerLifecycleTests(unittest.TestCase):
              patch.object(server, 'get_interface', return_value=interface) as connect, \
              patch.object(server, 'initialize_database'), \
              patch.object(server, 'JS8CallClient', return_value=client), \
+             patch.object(server.threading, 'Thread') as worker, \
              patch.object(server, 'pub') as pub, \
              patch('tcp_health.ProtocolWatchdog', return_value=watchdog):
             self.assertEqual(server.main(), 2)
         connect.assert_called_once()
         interface.close.assert_called_once()
         watchdog.close.assert_called_once()
-        client.close.assert_called_once()
+        self.assertTrue(worker.call_args.kwargs["daemon"])
+        worker.return_value.start.assert_called_once()
         pub.unsubscribe.assert_called_once()
+
+    def test_js8_database_is_created_and_closed_in_worker(self):
+        stopping = Mock(is_set=Mock(return_value=False))
+        client = Mock()
+        with patch.object(server, 'JS8CallClient', return_value=client):
+            server.run_js8call(Mock(), stopping)
+        client.connect.assert_called_once()
+        client.close.assert_called_once()
+        client.db_conn.close.assert_called_once()
+
+    def test_js8_does_not_start_after_shutdown(self):
+        stopping = Mock(is_set=Mock(return_value=True))
+        client = Mock()
+        with patch.object(server, 'JS8CallClient', return_value=client):
+            server.run_js8call(Mock(), stopping)
+        client.connect.assert_not_called()
+        client.close.assert_called_once()

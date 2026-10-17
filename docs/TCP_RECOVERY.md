@@ -35,6 +35,8 @@ compatibility before enabling automatic recovery.
 
 The Meshtastic client is pinned to 2.7.11 because the TCP adapter overrides its
 internal reconnect, queue, and stream hooks. Re-test those hooks before upgrading.
+Optional blocking JS8Call I/O runs in a daemon worker with its SQLite connection
+created there, so it cannot stall the health loop or hold the process open.
 TCP connect/read/write operations have a five-second timeout; idle reads are
 normal. Queue-space waits are bounded to ten seconds. Library reconnect attempts
 are disabled so reader/writer threads cannot race desktop retries. Interface

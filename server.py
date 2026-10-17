@@ -14,6 +14,7 @@ other BBS servers listed in the config.ini file.
 
 import logging
 import time
+import threading
 
 from config_init import initialize_config, get_interface, init_cli_parser, merge_config
 from db_operations import initialize_database
@@ -49,6 +50,27 @@ Meshtastic Version
 """
     print(banner)
 
+def run_js8call(interface, stopping):
+    """Keep optional blocking JS8 I/O off the radio health loop.
+
+    Construct its SQLite connection in the worker that uses it. The worker is
+    daemonized so blocked external I/O cannot keep a failed radio session alive.
+    """
+    client = None
+    try:
+        client = JS8CallClient(interface)
+        client.logger = js8call_logger
+        if client.db_conn and not stopping.is_set():
+            client.connect()
+    except Exception:
+        js8call_logger.exception("JS8Call integration stopped")
+    finally:
+        if client:
+            client.close()
+            if client.db_conn:
+                client.db_conn.close()
+
+
 def main():
     display_banner()
     args = init_cli_parser()
@@ -60,7 +82,7 @@ def main():
     merge_config(system_config, args)
 
     interface = None
-    js8call_client = None
+    stopping = threading.Event()
     watchdog = None
 
     def receive_packet(packet, interface):
@@ -78,10 +100,8 @@ def main():
         interface.allowed_nodes = system_config['allowed_nodes']
         initialize_database()
         pub.subscribe(receive_packet, system_config['mqtt_topic'])
-        js8call_client = JS8CallClient(interface)
-        js8call_client.logger = js8call_logger
-        if js8call_client.db_conn:
-            js8call_client.connect()
+        threading.Thread(target=run_js8call, args=(interface, stopping),
+                         daemon=True, name="JS8Call").start()
         logging.info(f"TC²-BBS is running on {system_config['interface_type']} interface...")
         if system_config['interface_type'] == 'tcp':
             from tcp_health import ProtocolWatchdog
@@ -99,15 +119,12 @@ def main():
         logging.exception("BBS session failed")
         return 1
     finally:
+        stopping.set()
         pub.unsubscribe(receive_packet, system_config['mqtt_topic'])
         if watchdog:
             watchdog.close()
-        try:
-            if js8call_client:
-                js8call_client.close()
-        finally:
-            if interface:
-                interface.close()
+        if interface:
+            interface.close()
 
 if __name__ == "__main__":
     raise SystemExit(main())
