@@ -32,7 +32,11 @@ class ServerSupervisor:
             return False
         self.stopping = False
         self.ready = False
-        options = dict(cwd=self.cwd, stdout=subprocess.PIPE,\n                       stderr=subprocess.STDOUT, text=True, bufsize=1)\n        if self.env_overrides:\n            options['env'] = {**os.environ, **self.env_overrides}\n        self.process = self.factory(self.command, **options)
+        options = dict(cwd=self.cwd, stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, text=True, bufsize=1)
+        if self.env_overrides:
+            options['env'] = {**os.environ, **self.env_overrides}
+        self.process = self.factory(self.command, **options)
         self.started_at = time.monotonic()
         threading.Thread(target=self._read_output, args=(self.process,), daemon=True).start()
         self.events.put(("state", "Starting BBS process..."))
@@ -41,7 +45,8 @@ class ServerSupervisor:
     def _read_output(self, process):
         try:
             for raw in process.stdout:
-                line = raw.rstrip("\r\n")
+                line = raw.rstrip("\r
+")
                 if READY_PATTERN.search(line):
                     self.ready = True
                     self.events.put(("state", "Server initialized (radio link unverified)"))

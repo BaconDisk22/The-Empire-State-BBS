@@ -261,7 +261,8 @@ class SitdownApp:
             path = self.local_database()
             if not path:
                 content.insert("end", "No local BBS database found. Start the BBS "
-                               "to create records, then refresh.\\n")
+                               "to create records, then refresh.\
+")
             else:
                 try:
                     # Read-only URI prevents accidental writes and creation.
@@ -270,17 +271,21 @@ class SitdownApp:
                         names = {row[0] for row in conn.execute(
                             "SELECT name FROM sqlite_master WHERE type='table'")}
                         if table not in names:
-                            content.insert("end", "The database has no " + table + " table.\\n")
+                            content.insert("end", "The database has no " + table + " table.\
+")
                         else:
                             selected = ", ".join('"' + col + '"' for col in columns)
                             query = "SELECT " + selected + " FROM " + table + " ORDER BY id DESC LIMIT 100"
                             records = conn.execute(query).fetchall()
                             if not records:
-                                content.insert("end", "No saved records yet.\\n")
+                                content.insert("end", "No saved records yet.\
+")
                             for record in records:
                                 for col, value in zip(columns, record):
-                                    content.insert("end", f"{col}: {value}\\n")
-                                content.insert("end", "─" * 55 + "\\n")
+                                    content.insert("end", f"{col}: {value}\
+")
+                                content.insert("end", "─" * 55 + "\
+")
                 except sqlite3.Error as exc:
                     content.insert("end", "Could not read local BBS data: " + str(exc))
             content.configure(state="disabled")
@@ -351,8 +356,10 @@ class SitdownApp:
 
     def show_about(self):
         messagebox.showinfo("The Empire State BBS",
-                            "New York statewide Meshtastic BBS.\\n"
-                            "From the Five Boroughs to the North Country.\\n"
+                            "New York statewide Meshtastic BBS.\
+"
+                            "From the Five Boroughs to the North Country.\
+"
                             "Demo mode never connects or transmits.")
 
     def attitude_message(self):
@@ -389,7 +396,8 @@ class SitdownApp:
 
     def log(self, message):
         self.output.configure(state="normal")
-        self.output.insert("end", message + "\n")
+        self.output.insert("end", message + "
+")
         if int(self.output.index("end-1c").split(".")[0]) > 2000:
             self.output.delete("1.0", "300.0")
         self.output.see("end")
@@ -417,7 +425,8 @@ class SitdownApp:
                     for label in labels
                 ):
                     return "Invalid TCP hostname or IP address."
-        elif any(c in addr for c in ("\\x00", "\\r", "\\n")):
+        elif any(c in addr for c in ("\\x00", "\\r", "\
+")):
             return "Serial port contains invalid characters."
         return None
 
@@ -464,7 +473,8 @@ class SitdownApp:
         if addr:
             cmd += ["--host" if self.connection.get() == "tcp" else "--port", addr]
         try:
-            self.supervisor = ServerSupervisor(cmd, DATA if getattr(sys, "frozen", False) else ROOT,\n                                               env_overrides={"EMPIRE_ATTITUDE": self.attitude.get()})
+            self.supervisor = ServerSupervisor(cmd, DATA if getattr(sys, "frozen", False) else ROOT,
+                                               env_overrides={"EMPIRE_ATTITUDE": self.attitude.get()})
             self.supervisor.start()
             self.status.set("Starting...")
             self.log("Starting The Empire State BBS...")
