@@ -9,10 +9,12 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+  actions: write
 
 concurrency:
   group: empire-readme-screenshot
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   capture:
@@ -38,15 +40,15 @@ jobs:
           name: empire-desktop-demo-screenshot
           path: docs/images/desktop-preview-demo.png
           if-no-files-found: error
-      - name: Update README image on main
-        if: github.ref == 'refs/heads/main'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/images/desktop-preview-demo.png
-          if git diff --cached --quiet; then
-            echo "Screenshot unchanged"
-          else
-            git commit -m "docs: refresh desktop demo screenshot [skip ci]"
-            git push origin HEAD:main
-          fi
+      - name: Open screenshot pull request
+        if: success() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCREENSHOT_PATHS: |
+            docs/images/desktop-preview-demo.png
+          CHECK_WORKFLOWS: |
+            sitdown-checks.yml
+            intel-mac-test-build.yml
+        run: bash .github/scripts/open-screenshot-pr.sh
+
