@@ -47,6 +47,7 @@ class SitdownApp:
         self.status = tk.StringVar(value="Stopped")
         self.last_serial_scan = 0.0
         self.last_serial_ports = None
+        self.waiting_for_usb = False
         self.colors = THEME
         self.root.title("THE EMPIRE STATE BBS | New York State Communications Network")
         self.root.geometry("1220x830")
@@ -632,7 +633,19 @@ class SitdownApp:
         selected = self.address.get().strip()
         if selected and selected in removed:
             self.status.set("USB device removed — radio connection unverified")
-            self.log("Selected USB radio disappeared. Stop and restart after reconnecting.")
+            self.log("Selected USB radio disappeared; waiting for reconnect.")
+            if self.auto_restart.get() and self.supervisor and self.supervisor.running:
+                self.supervisor.stop()
+                self.supervisor = None
+                self.waiting_for_usb = True
+                self.restart_at = None
+                self.log("Stopped BBS; waiting for the same USB port to return.")
+        if (self.waiting_for_usb and selected in added and
+                self.auto_restart.get() and not self.demo.get() and
+                not (self.supervisor and self.supervisor.running)):
+            self.waiting_for_usb = False
+            self.restart_at = time.monotonic() + 2
+            self.log("USB port returned; scheduling restart in 2 seconds.")
         if (not selected and len(ports) == 1 and
                 not (self.supervisor and self.supervisor.running)):
             self.address.set(ports[0])
@@ -721,19 +734,20 @@ class SitdownApp:
                 code = monitor.process.poll() if monitor.process else "unknown"
                 self.log(f"BBS process exited ({code}).")
                 self.status.set("Disconnected / process stopped")
-                if self.auto_restart.get() and not self.demo.get():
+                if self.auto_restart.get() and not self.demo.get() and not self.waiting_for_usb:
                     self.retry_count += 1
                     delay = min(60, 2 ** min(self.retry_count, 6))
                     self.restart_at = time.monotonic() + delay
                     self.log(f"Retrying process in {delay}s (attempt {self.retry_count}).")
                 self.supervisor = None
-        if self.restart_at is not None and time.monotonic() >= self.restart_at:
+        if self.restart_at is not None and time.monotonic() >= self.restart_at and not self.waiting_for_usb:
             self.restart_at = None
             self.start()
         if self.root.winfo_exists():
             self.root.after(500, self.poll)
 
     def stop(self):
+        self.waiting_for_usb = False
         self.restart_at = None
         self.retry_count = 0
         if self.supervisor:
