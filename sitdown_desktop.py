@@ -464,7 +464,8 @@ class SitdownApp:
         if addr:
             cmd += ["--host" if self.connection.get() == "tcp" else "--port", addr]
         try:
-            self.supervisor = ServerSupervisor(cmd, DATA if getattr(sys, "frozen", False) else ROOT)
+            self.supervisor = ServerSupervisor(cmd, DATA if getattr(sys, "frozen", False) else ROOT,
+                                               env_overrides={"EMPIRE_ATTITUDE": self.attitude.get()})
             self.supervisor.start()
             self.status.set("Starting...")
             self.log("Starting The Empire State BBS...")
