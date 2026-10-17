@@ -346,6 +346,12 @@ class SitdownApp:
                                      "Recipient, subject and message are required.",
                                      parent=win)
                 return
+            if not (recipient.startswith("!") and len(recipient) == 9
+                    and all(c in "0123456789abcdefABCDEF" for c in recipient[1:])):
+                messagebox.showerror("Invalid recipient",
+                                     "Use a Meshtastic node ID such as !a1b2c3d4.",
+                                     parent=win)
+                return
             drafts = DATA / "drafts"
             drafts.mkdir(parents=True, exist_ok=True)
             import uuid
@@ -570,7 +576,7 @@ class SitdownApp:
                     for label in labels
                 ):
                     return "Invalid TCP hostname or IP address."
-        elif any(c in addr for c in ("\\x00", "\\r", "\\n")):
+        elif any(ord(c) < 32 or ord(c) == 127 for c in addr):
             return "Serial port contains invalid characters."
         return None
 
