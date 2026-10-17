@@ -59,35 +59,55 @@ def main():
 
     merge_config(system_config, args)
 
-    interface = get_interface(system_config)
-    interface.bbs_nodes = system_config['bbs_nodes']
-    interface.allowed_nodes = system_config['allowed_nodes']
-
-    logging.info(f"TC²-BBS is running on {system_config['interface_type']} interface...")
-
-    initialize_database()
+    interface = None
+    js8call_client = None
+    watchdog = None
 
     def receive_packet(packet, interface):
         on_receive(packet, interface)
 
-    pub.subscribe(receive_packet, system_config['mqtt_topic'])
-
-    # Initialize and start JS8Call Client if configured
-    js8call_client = JS8CallClient(interface)
-    js8call_client.logger = js8call_logger
-
-    if js8call_client.db_conn:
-        js8call_client.connect()
+    def health(state):
+        # Dedicated, anchored supervisor record; ordinary radio logs cannot set health.
+        print("EMPIRE_RADIO_HEALTH " + state, flush=True)
 
     try:
+        if system_config['interface_type'] == 'tcp':
+            health("CONNECTING")
+        interface = get_interface(system_config)
+        interface.bbs_nodes = system_config['bbs_nodes']
+        interface.allowed_nodes = system_config['allowed_nodes']
+        initialize_database()
+        pub.subscribe(receive_packet, system_config['mqtt_topic'])
+        js8call_client = JS8CallClient(interface)
+        js8call_client.logger = js8call_logger
+        if js8call_client.db_conn:
+            js8call_client.connect()
+        logging.info(f"TC²-BBS is running on {system_config['interface_type']} interface...")
+        if system_config['interface_type'] == 'tcp':
+            from tcp_health import ProtocolWatchdog
+            watchdog = ProtocolWatchdog(interface, health)
         while True:
+            if watchdog and not watchdog.tick():
+                logging.error("Radio session failed; stopping. Desktop recovery requires opt-in.")
+                return 2
             time.sleep(1)
-
     except KeyboardInterrupt:
         logging.info("Shutting down the server...")
-        interface.close()
-        if js8call_client.connected:
-            js8call_client.close()
+        return 0
+    except Exception:
+        health("FAILED")
+        logging.exception("BBS session failed")
+        return 1
+    finally:
+        pub.unsubscribe(receive_packet, system_config['mqtt_topic'])
+        if watchdog:
+            watchdog.close()
+        try:
+            if js8call_client:
+                js8call_client.close()
+        finally:
+            if interface:
+                interface.close()
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

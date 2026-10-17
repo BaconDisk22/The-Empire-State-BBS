@@ -1,7 +1,7 @@
 """Process supervision and log parsing for the Sitdown desktop.
 
-This supervises the BBS *process*, not the radio link. A running process is
-not proof of a successful radio connection.
+Supervises the BBS process and displays explicit server health records.
+A running process is not proof of a successful radio connection.
 """
 import queue
 import os
@@ -11,6 +11,8 @@ import threading
 import time
 
 NODE_PATTERN = re.compile(r"Received message from user '([^']+)' \((![0-9a-fA-F]+)\)")
+HEALTH_PATTERN = re.compile(r"^EMPIRE_RADIO_HEALTH (CONNECTING|CHECKING|RESPONSIVE|UNRESPONSIVE|DISCONNECTED|FAILED)$")
+
 READY_PATTERN = re.compile(r"(?:BBS is running on|TC²-BBS is running on)", re.I)
 
 
@@ -25,6 +27,7 @@ class ServerSupervisor:
         self.started_at = None
         self.nodes = {}
         self.ready = False
+        self.radio_state = None
         self.stopping = False
 
     def start(self):
@@ -32,6 +35,7 @@ class ServerSupervisor:
             return False
         self.stopping = False
         self.ready = False
+        self.radio_state = None
         options = dict(cwd=self.cwd, stdout=subprocess.PIPE,
                        stderr=subprocess.STDOUT, text=True, bufsize=1)
         if self.env_overrides:
@@ -46,7 +50,14 @@ class ServerSupervisor:
         try:
             for raw in process.stdout:
                 line = raw.rstrip("\r\n")
-                if READY_PATTERN.search(line):
+                if process is not self.process:
+                    break
+                health = HEALTH_PATTERN.fullmatch(line)
+                if health:
+                    self.radio_state = health.group(1)
+                    self.ready = self.radio_state == "RESPONSIVE"
+                    self.events.put(("state", "Radio: " + self.radio_state + " — RF delivery unverified"))
+                if READY_PATTERN.search(line) and self.radio_state is None:
                     self.ready = True
                     self.events.put(("state", "Server initialized (radio link unverified)"))
                 match = NODE_PATTERN.search(line)
@@ -80,6 +91,7 @@ class ServerSupervisor:
         self.process = None
         self.started_at = None
         self.ready = False
+        self.radio_state = None
 
     def poll_events(self, limit=100):
         items = []

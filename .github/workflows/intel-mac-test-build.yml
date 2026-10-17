@@ -37,7 +37,7 @@ jobs:
       - name: Run unit tests
         run: |
           python -m compileall -q sitdown_desktop.py sitdown_monitor.py
-          python -m unittest discover -s tests -p 'test_sitdown_*.py'
+          python -m unittest discover -s tests -p 'test_*.py'
       - name: Generate Empire State app icon
         run: |
           python scripts/make_icon.py

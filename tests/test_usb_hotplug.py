@@ -13,6 +13,9 @@ class USBHotplugTests(unittest.TestCase):
         app.address = Mock()
         app.address.get.return_value = ""
         app.supervisor = None
+        app.waiting_for_usb = False
+        app.auto_restart = Mock()
+        app.auto_restart.get.return_value = False
         app.status = Mock()
         app.log = Mock()
         app.last_serial_ports = ()

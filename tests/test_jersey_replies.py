@@ -14,7 +14,7 @@ class JerseyReplyTests(unittest.TestCase):
         self.assertNotIn("TC² BBS", self.source)
 
     def test_jersey_menu_and_quick_help(self):
-        for text in ("THE SITDOWN BBS", "The Playbook", "The Social Club", "The Backroom", "Fuggedaboutit"):
+        for text in ("THE EMPIRE STATE BBS", "The Playbook", "The Social Club", "The Backroom", "Fuggedaboutit"):
             with self.subTest(text=text):
                 self.assertIn(text, self.source)
 

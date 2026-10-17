@@ -123,7 +123,7 @@ class SitdownApp:
                  bg=panel, fg=cream).pack(anchor="w", pady=7)
         tk.Checkbutton(center, text="DEMO MODE (NO RADIO)", variable=self.demo,
                        bg=panel, fg=gold, selectcolor=bg).pack(anchor="w")
-        tk.Checkbutton(center, text="Restart on crash", variable=self.auto_restart,
+        tk.Checkbutton(center, text="Auto recovery (crash / radio loss)", variable=self.auto_restart,
                        bg=panel, fg=cream, selectcolor=bg).pack(anchor="w")
         self.styled_button(center, "START BBS SERVER", self.start, "#166F43").pack(fill="x", pady=(14, 5))
         self.styled_button(center, "STOP SERVER", self.stop, "#9A302A").pack(fill="x", pady=5)
@@ -520,6 +520,8 @@ class SitdownApp:
             status = "DEMO MODE — radio disabled; no transmissions possible."
         elif monitor is None or not monitor.running:
             status = "BBS stopped — no active radio connection."
+        elif monitor.radio_state:
+            status = f"Radio: {monitor.radio_state} — local protocol only; RF delivery unverified."
         elif monitor.ready:
             status = ("BBS process initialized — radio link and message "
                       "delivery are NOT verified.")
@@ -659,6 +661,9 @@ class SitdownApp:
         if self.demo.get():
             messagebox.showinfo("Radio preflight", "Demo mode: no radio checks or transmissions.")
             return
+        if self.supervisor and self.supervisor.running:
+            messagebox.showinfo("Radio preflight", "Stop the BBS before preflight; a second TCP connection may disrupt the radio session.")
+            return
         error = self.validate_radio_target()
         if error:
             messagebox.showerror("Radio preflight", error)
@@ -728,7 +733,7 @@ class SitdownApp:
             present = self.address.get().strip() in self.last_serial_ports
         self.radio_health.set(radio_health_label(self.demo.get(),
             bool(monitor and monitor.running), bool(monitor and monitor.ready),
-            present, self.waiting_for_usb))
+            present, self.waiting_for_usb, monitor.radio_state if monitor else None))
         if monitor:
             for kind, value in monitor.poll_events():
                 if kind == "log":
@@ -747,11 +752,15 @@ class SitdownApp:
                     self.retry_count += 1
                     delay = min(60, 2 ** min(self.retry_count, 6))
                     self.restart_at = time.monotonic() + delay
+                    self.status.set(f"Radio unavailable — recovery in {delay}s (attempt {self.retry_count})")
                     self.log(f"Retrying process in {delay}s (attempt {self.retry_count}).")
                 self.supervisor = None
-        if self.restart_at is not None and time.monotonic() >= self.restart_at and not self.waiting_for_usb:
-            self.restart_at = None
-            self.start()
+        if self.restart_at is not None:
+            if not self.auto_restart.get() or self.demo.get():
+                self.restart_at = None
+            elif time.monotonic() >= self.restart_at and not self.waiting_for_usb:
+                self.restart_at = None
+                self.start()
         if self.root.winfo_exists():
             self.root.after(500, self.poll)
 
