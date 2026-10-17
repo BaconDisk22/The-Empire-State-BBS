@@ -162,14 +162,71 @@ class SitdownApp:
     def show_home(self):
         self.log("EMPIRE HQ: You're already on the dashboard.")
 
+    def command_panel(self, title, subtitle, commands):
+        """Read-only command browser: actual BBS content stays on the radio."""
+        win = tk.Toplevel(self.root)
+        win.title(title + " | The Empire State BBS")
+        win.geometry("560x420")
+        win.configure(bg=THEME["background"])
+        tk.Label(win, text=title.upper(), bg=THEME["background"],
+                 fg=THEME["highlight"], font=("Helvetica", 20, "bold")).pack(
+                     anchor="w", padx=20, pady=(20, 4))
+        tk.Label(win, text=subtitle, bg=THEME["background"], fg=THEME["text"],
+                 justify="left", wraplength=510).pack(anchor="w", padx=20, pady=(0, 15))
+        for command, description in commands:
+            line = tk.Frame(win, bg=THEME["panel"], padx=12, pady=9)
+            line.pack(fill="x", padx=20, pady=4)
+            tk.Label(line, text=command, bg=THEME["panel"],
+                     fg=THEME["highlight"], font=("Menlo", 12, "bold")).pack(side="left")
+            tk.Label(line, text=description, bg=THEME["panel"],
+                     fg=THEME["text"]).pack(side="left", padx=14)
+            def copy(value=command):
+                win.clipboard_clear()
+                win.clipboard_append(value)
+                win.update()
+                self.log("Copied radio command: " + value)
+            self.styled_button(line, "COPY", copy, THEME["background"]).pack(side="right")
+
     def show_bulletin(self):
-        self.log("THE BULLETIN: DM /boards to your BBS radio to browse bulletins.")
-        self.commands()
+        self.command_panel("The Bulletin", "Bulletin boards live on your Meshtastic BBS. "
+                           "DM these commands to your BBS node; this window does not "
+                           "download, create, or invent posts.", [
+                               ("/boards", "Browse bulletin boards"),
+                               ("/empire", "Return to the main menu"),
+                               ("/help", "View available commands")])
 
     def show_locals(self):
-        count = len(self.supervisor.nodes) if self.supervisor else 0
-        messagebox.showinfo("The Locals", f"Observed nodes this session: {count}.\\n"
-                            "This is not a complete network directory.")
+        win = tk.Toplevel(self.root)
+        win.title("The Locals | Observed Radio Nodes")
+        win.geometry("610x430")
+        win.configure(bg=THEME["background"])
+        tk.Label(win, text="THE LOCALS", bg=THEME["background"],
+                 fg=THEME["highlight"], font=("Helvetica", 22, "bold")).pack(
+                     anchor="w", padx=20, pady=(20, 4))
+        tk.Label(win, text="Nodes observed in this BBS process's logs only. "
+                 "Not a full mesh directory or proof of current connectivity.",
+                 bg=THEME["background"], fg=THEME["text"],
+                 wraplength=550, justify="left").pack(anchor="w", padx=20, pady=(0, 12))
+        listing = tk.Text(win, bg=THEME["panel"], fg=THEME["text"],
+                          font=("Menlo", 11), relief="flat", height=12)
+        listing.pack(fill="both", expand=True, padx=20, pady=6)
+        def refresh():
+            listing.delete("1.0", "end")
+            nodes = self.supervisor.nodes if self.supervisor else {}
+            if not nodes:
+                listing.insert("end", "No nodes observed in this session.\\n"
+                               "Start a real BBS radio connection to collect activity.")
+            else:
+                for node_id, (name, last_seen) in sorted(nodes.items()):
+                    listing.insert("end", f"{name}  |  {node_id}  |  "
+                                   f"Last log: {time.strftime('%H:%M:%S', time.localtime(last_seen))}\\n")
+            listing.configure(state="disabled")
+        def update_listing():
+            listing.configure(state="normal")
+            refresh()
+        self.styled_button(win, "REFRESH OBSERVED NODES", update_listing,
+                           THEME["primary"]).pack(pady=10)
+        refresh()
 
     def show_radio(self):
         self.log("THE EMPIRE CONNECTION: Choose USB or TCP and start the BBS.")
