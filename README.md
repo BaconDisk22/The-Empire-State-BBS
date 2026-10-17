@@ -48,3 +48,7 @@ These steps address macOS security prompts for an unsigned app. If the icon boun
 The working implementation will be adapted from [BaconDisk22/The-Sitdown-BBS](https://github.com/BaconDisk22/The-Sitdown-BBS), itself based on TC²-BBS. Preserve original copyright notices and GPLv3 license during migration.
 
 **The Sitdown BBS remains an independent New Jersey project.**
+
+## Empire State gold dashboard
+
+The Mac launcher uses a black-and-antique-gold statewide New York dashboard inspired by the approved design concept, with a matching original skyline app icon. Panels show actual process status, observed nodes, server logs, radio configuration and local attitude controls. The Grapevine and Bulletin shortcuts open the supported radio command guide; they are not separate message browsers yet. Demo mode never claims a live connection. The visual concept is not a screenshot of a working radio session.
