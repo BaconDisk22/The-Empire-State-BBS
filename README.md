@@ -6,7 +6,7 @@
 
 A statewide, old-school New York-themed edition of the Meshtastic bulletin board project, inspired by [THE SITDOWN BBS](https://github.com/BaconDisk22/The-Sitdown-BBS).
 
-> **Project status:** Initial repository setup. The functioning BBS and Intel Mac desktop application have **not yet been migrated**. Do not treat this repository as a working release yet.
+> **Project status:** A working Meshtastic BBS codebase and Intel Mac beta build workflows are present. The gold desktop dashboard and original skyline icon are implemented. Real-radio functionality and launch behavior on individual Macs still require device testing. [Releases](https://github.com/BaconDisk22/The-Empire-State-BBS/releases).
 
 ## Statewide identity
 
@@ -22,7 +22,7 @@ This project represents **all of New York State**, not just New York City: Weste
 | Brick red | `#9C302C` |
 | Adirondack green | `#36513D` |
 
-## Planned migration
+## Implementation and next steps
 
 - Preserve existing radio BBS behavior and compatibility.
 - Replace New Jersey-specific names, messages, menus, and assets with statewide New York branding.
@@ -45,10 +45,14 @@ These steps address macOS security prompts for an unsigned app. If the icon boun
 
 ## Source and licensing
 
-The working implementation will be adapted from [BaconDisk22/The-Sitdown-BBS](https://github.com/BaconDisk22/The-Sitdown-BBS), itself based on TC²-BBS. Preserve original copyright notices and GPLv3 license during migration.
+The implementation was adapted from [BaconDisk22/The-Sitdown-BBS](https://github.com/BaconDisk22/The-Sitdown-BBS), itself based on TC²-BBS. Preserve original copyright notices and GPLv3 license during migration.
 
 **The Sitdown BBS remains an independent New Jersey project.**
 
 ## Empire State gold dashboard
 
 The Mac launcher uses a black-and-antique-gold statewide New York dashboard inspired by the approved design concept, with a matching original skyline app icon. Panels show actual process status, observed nodes, server logs, radio configuration and local attitude controls. The Grapevine and Bulletin shortcuts open the supported radio command guide; they are not separate message browsers yet. Demo mode never claims a live connection. The visual concept is not a screenshot of a working radio session.
+
+## Build verification
+
+The Intel Mac CI packages the app, checks x86_64 architecture and launches the **actual bundled executable** with `--smoke-test` to confirm Tk and the dashboard initialize. This catches packaging-related startup errors, but it does not replace testing a normal Finder launch on macOS Tahoe or a real Meshtastic device.

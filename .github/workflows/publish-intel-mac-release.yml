@@ -77,6 +77,14 @@ jobs:
             --add-data "example_config.ini:." \
             --collect-all meshtastic --collect-all pubsub sitdown_desktop.py
           test -d "dist/The Empire State BBS.app"
+          python - <<'PY'
+          import subprocess
+          binary = "dist/The Empire State BBS.app/Contents/MacOS/The Empire State BBS"
+          result = subprocess.run([binary, "--smoke-test"], capture_output=True, text=True, timeout=60)
+          print(result.stdout, result.stderr)
+          if result.returncode or "EMPIRE_GUI_SMOKE_OK" not in result.stdout:
+              raise SystemExit("Bundled GUI failed launch smoke test")
+          PY
           lipo -archs "dist/The Empire State BBS.app/Contents/MacOS/The Empire State BBS" | grep -q x86_64
       - name: Build release DMG and checksums
         env:

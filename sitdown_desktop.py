@@ -362,6 +362,17 @@ class SitdownApp:
 
 
 if __name__ == "__main__":
+    if "--smoke-test" in sys.argv:
+        # Launch the *packaged* GUI in CI, not just the source Python module.
+        root = tk.Tk()
+        root.withdraw()
+        app = SitdownApp(root)
+        root.update_idletasks()
+        if not app.output.winfo_exists():
+            raise RuntimeError("Dashboard failed to initialize")
+        print("EMPIRE_GUI_SMOKE_OK", flush=True)
+        root.destroy()
+        sys.exit(0)
     if "--sitdown-server" in sys.argv:
         sys.argv.remove("--sitdown-server")
         import server  # Ensures PyInstaller includes the server and its dependencies.
