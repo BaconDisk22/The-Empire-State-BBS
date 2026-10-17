@@ -507,6 +507,18 @@ class SitdownApp:
     def show_radio(self):
         self.log("THE EMPIRE CONNECTION: Choose USB or TCP and start the BBS.")
         self.list_ports()
+        monitor = self.supervisor
+        if self.demo.get():
+            status = "DEMO MODE — radio disabled; no transmissions possible."
+        elif monitor is None or not monitor.running:
+            status = "BBS stopped — no active radio connection."
+        elif monitor.ready:
+            status = ("BBS process initialized — radio link and message "
+                      "delivery are NOT verified.")
+        else:
+            status = "BBS process running — waiting for initialization; radio unverified."
+        self.log(status)
+        messagebox.showinfo("Empire Connection | Radio Status", status)
 
     def show_about(self):
         messagebox.showinfo("The Empire State BBS",
