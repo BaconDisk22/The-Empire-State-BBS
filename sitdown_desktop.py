@@ -251,6 +251,14 @@ class SitdownApp:
                  "Mail may contain private messages. No radio transmission occurs here.",
                  bg=THEME["background"], fg=THEME["text"], wraplength=760,
                  justify="left").pack(anchor="w", padx=18, pady=(0, 10))
+        search = tk.StringVar()
+        search_row = tk.Frame(win, bg=THEME["background"])
+        search_row.pack(fill="x", padx=18, pady=(0, 8))
+        tk.Label(search_row, text="SEARCH LOCAL RECORDS", bg=THEME["background"],
+                 fg=THEME["highlight"]).pack(side="left", padx=(0, 10))
+        tk.Entry(search_row, textvariable=search, bg=THEME["panel"],
+                 fg=THEME["text"], insertbackground=THEME["text"],
+                 relief="flat").pack(side="left", fill="x", expand=True)
         content = tk.Text(win, bg=THEME["panel"], fg=THEME["text"],
                           insertbackground=THEME["text"], wrap="word",
                           font=("Menlo", 11), padx=12, pady=12)
@@ -275,8 +283,12 @@ class SitdownApp:
                             selected = ", ".join('"' + col + '"' for col in columns)
                             query = "SELECT " + selected + " FROM " + table + " ORDER BY id DESC LIMIT 100"
                             records = conn.execute(query).fetchall()
+                            needle = search.get().strip().casefold()
+                            if needle:
+                                records = [record for record in records if any(
+                                    needle in str(value).casefold() for value in record)]
                             if not records:
-                                content.insert("end", "No saved records yet.\\n")
+                                content.insert("end", "No matching local records among the latest 100.\\n")
                             for record in records:
                                 for col, value in zip(columns, record):
                                     content.insert("end", f"{col}: {value}\\n")
@@ -284,7 +296,8 @@ class SitdownApp:
                 except sqlite3.Error as exc:
                     content.insert("end", "Could not read local BBS data: " + str(exc))
             content.configure(state="disabled")
-        self.styled_button(win, "REFRESH LOCAL RECORDS", refresh,
+        search_row.bind("<Return>", lambda _event: refresh())
+        self.styled_button(win, "SEARCH / REFRESH LOCAL RECORDS", refresh,
                            THEME["primary"]).pack(pady=10)
         refresh()
 
