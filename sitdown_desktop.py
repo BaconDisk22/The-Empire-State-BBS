@@ -464,7 +464,7 @@ class SitdownApp:
         if addr:
             cmd += ["--host" if self.connection.get() == "tcp" else "--port", addr]
         try:
-            self.supervisor = ServerSupervisor(cmd, DATA if getattr(sys, "frozen", False) else ROOT)
+            self.supervisor = ServerSupervisor(cmd, DATA if getattr(sys, "frozen", False) else ROOT,\n                                               env_overrides={"EMPIRE_ATTITUDE": self.attitude.get()})
             self.supervisor.start()
             self.status.set("Starting...")
             self.log("Starting The Empire State BBS...")
@@ -536,7 +536,7 @@ class SitdownApp:
             tk.Label(win, text=name, bg=THEME["background"], fg=THEME["text"]).pack(anchor="w", padx=20, pady=(12, 0))
             tk.Entry(win, textvariable=var, width=55, bg=THEME["panel"], fg=THEME["text"],
                      insertbackground=THEME["text"]).pack(padx=20)
-        tk.Label(win, text="EMPIRE STATE ATTITUDE — applies only to local interface and demo text",
+        tk.Label(win, text="EMPIRE STATE ATTITUDE — applies to local preview and radio main-menu heading",
                  bg=THEME["background"], fg=THEME["highlight"]).pack(padx=20, pady=(12, 4))
         for value, title in [("clean", "Clean — Classic New York (default)"),
                              ("spicy", "Spicy — A Little Mouthy"),
@@ -545,7 +545,7 @@ class SitdownApp:
                            command=lambda v=value: self.set_attitude(v),
                            bg=THEME["background"], fg=THEME["text"],
                            selectcolor=THEME["panel"], anchor="w").pack(anchor="w", padx=20)
-        tk.Label(win, text="Custom welcome is saved locally; radio reply integration is pending.",
+        tk.Label(win, text="Custom welcome is saved locally; only the radio main-menu heading uses attitude.",
                  bg=THEME["background"], fg=THEME["highlight"]).pack(padx=20, pady=10)
         self.styled_button(win, "Save", self.save, THEME["connected"]).pack(pady=12)
 

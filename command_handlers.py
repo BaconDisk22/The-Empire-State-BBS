@@ -1,5 +1,6 @@
 import configparser
 import logging
+import os
 import random
 import time
 
@@ -54,6 +55,17 @@ def build_menu(items, menu_name):
             menu_str += "[W]all of Shame\n"
     return menu_str
 
+def empire_main_menu_heading(mail_count):
+    """Optional operator-selected language; defaults to clean on the radio."""
+    mode = os.environ.get("EMPIRE_ATTITUDE", "clean").casefold()
+    heading = {
+        "clean": "THE EMPIRE STATE BBS",
+        "spicy": "AYO! THE EMPIRE STATE BBS",
+        "unfiltered": "AYO! THE FUCKIN' EMPIRE STATE BBS",
+    }.get(mode, "THE EMPIRE STATE BBS")
+    return f"{heading} (Mail: {mail_count})"
+
+
 def handle_help_command(sender_id, interface, menu_name=None):
     if menu_name:
         update_user_state(sender_id, {'command': 'MENU', 'menu': menu_name, 'step': 1})
@@ -64,7 +76,7 @@ def handle_help_command(sender_id, interface, menu_name=None):
     else:
         update_user_state(sender_id, {'command': 'MAIN_MENU', 'step': 1})  # Reset to main menu state
         mail = get_mail(get_node_id_from_num(sender_id, interface))
-        response = build_menu(main_menu_items, f"🤌 THE SITDOWN BBS (✉️:{len(mail)})")
+        response = build_menu(main_menu_items, empire_main_menu_heading(len(mail)))
     send_message(response, sender_id, interface)
 
 def get_node_name(node_id, interface):

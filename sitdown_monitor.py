@@ -4,6 +4,7 @@ This supervises the BBS *process*, not the radio link. A running process is
 not proof of a successful radio connection.
 """
 import queue
+import os
 import re
 import subprocess
 import threading
@@ -14,10 +15,11 @@ READY_PATTERN = re.compile(r"(?:BBS is running on|TC²-BBS is running on)", re.I
 
 
 class ServerSupervisor:
-    def __init__(self, command, cwd, factory=None):
+    def __init__(self, command, cwd, factory=None, env_overrides=None):
         self.command = list(command)
         self.cwd = str(cwd)
         self.factory = factory or subprocess.Popen
+        self.env_overrides = env_overrides or {}
         self.events = queue.Queue()
         self.process = None
         self.started_at = None
@@ -30,9 +32,7 @@ class ServerSupervisor:
             return False
         self.stopping = False
         self.ready = False
-        self.process = self.factory(
-            self.command, cwd=self.cwd, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True, bufsize=1)
+        options = dict(cwd=self.cwd, stdout=subprocess.PIPE,\n                       stderr=subprocess.STDOUT, text=True, bufsize=1)\n        if self.env_overrides:\n            options['env'] = {**os.environ, **self.env_overrides}\n        self.process = self.factory(self.command, **options)
         self.started_at = time.monotonic()
         threading.Thread(target=self._read_output, args=(self.process,), daemon=True).start()
         self.events.put(("state", "Starting BBS process..."))
