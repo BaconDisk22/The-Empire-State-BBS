@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The Empire State BBS desktop launcher. Standard-library Tkinter GUI."""
 import json
+import sqlite3
 import runpy
 import shutil
 from pathlib import Path
@@ -84,7 +85,7 @@ class SitdownApp:
         nav = tk.Frame(self.root, bg=bg)
         nav.pack(fill="x", padx=14, pady=6)
         for name, action in [
-            ("EMPIRE HQ", self.show_home), ("THE GRAPEVINE", self.commands),
+            ("EMPIRE HQ", self.show_home), ("THE GRAPEVINE", self.show_messages),
             ("THE BULLETIN", self.show_bulletin), ("THE LOCALS", self.show_locals),
             ("THE EMPIRE CONNECTION", self.show_radio), ("SETTINGS", self.settings),
             ("ABOUT", self.show_about)
@@ -229,13 +230,72 @@ class SitdownApp:
                 self.log("Copied radio command: " + value)
             self.styled_button(line, "COPY", copy, THEME["background"]).pack(side="right")
 
+    def local_database(self):
+        """Locate the BBS SQLite store without creating an empty database."""
+        for path in (DATA / "bulletins.db", ROOT / "bulletins.db"):
+            if path.is_file():
+                return path
+        return None
+
+    def browse_local_records(self, title, table, columns):
+        """Read-only browser of the local BBS database, never a radio inbox."""
+        win = tk.Toplevel(self.root)
+        win.title(title + " | Empire State BBS")
+        win.geometry("800x530")
+        win.configure(bg=THEME["background"])
+        tk.Label(win, text=title.upper(), bg=THEME["background"],
+                 fg=THEME["highlight"], font=("Helvetica", 22, "bold")).pack(
+                     anchor="w", padx=18, pady=(15, 5))
+        tk.Label(win, text="LOCAL BBS DATABASE ONLY • not a synced mesh feed. "
+                 "Mail may contain private messages. No radio transmission occurs here.",
+                 bg=THEME["background"], fg=THEME["text"], wraplength=760,
+                 justify="left").pack(anchor="w", padx=18, pady=(0, 10))
+        content = tk.Text(win, bg=THEME["panel"], fg=THEME["text"],
+                          insertbackground=THEME["text"], wrap="word",
+                          font=("Menlo", 11), padx=12, pady=12)
+        content.pack(fill="both", expand=True, padx=18, pady=5)
+        def refresh():
+            content.configure(state="normal")
+            content.delete("1.0", "end")
+            path = self.local_database()
+            if not path:
+                content.insert("end", "No local BBS database found. Start the BBS "
+                               "to create records, then refresh.\\n")
+            else:
+                try:
+                    # Read-only URI prevents accidental writes and creation.
+                    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True,
+                                         timeout=2) as conn:
+                        names = {row[0] for row in conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'")}
+                        if table not in names:
+                            content.insert("end", "The database has no " + table + " table.\\n")
+                        else:
+                            selected = ", ".join('"' + col + '"' for col in columns)
+                            query = "SELECT " + selected + " FROM " + table + " ORDER BY id DESC LIMIT 100"
+                            records = conn.execute(query).fetchall()
+                            if not records:
+                                content.insert("end", "No saved records yet.\\n")
+                            for record in records:
+                                for col, value in zip(columns, record):
+                                    content.insert("end", f"{col}: {value}\\n")
+                                content.insert("end", "─" * 55 + "\\n")
+                except sqlite3.Error as exc:
+                    content.insert("end", "Could not read local BBS data: " + str(exc))
+            content.configure(state="disabled")
+        self.styled_button(win, "REFRESH LOCAL RECORDS", refresh,
+                           THEME["primary"]).pack(pady=10)
+        refresh()
+
+    def show_messages(self):
+        self.browse_local_records("The Grapevine / Local Mail", "mail",
+                                  ("id", "sender_short_name", "recipient",
+                                   "date", "subject", "content"))
+
     def show_bulletin(self):
-        self.command_panel("The Bulletin", "Bulletin boards live on your Meshtastic BBS. "
-                           "DM these commands to your BBS node; this window does not "
-                           "download, create, or invent posts.", [
-                               ("/boards", "Browse bulletin boards"),
-                               ("/empire", "Return to the main menu"),
-                               ("/help", "View available commands")])
+        self.browse_local_records("The Bulletin / Local Posts", "bulletins",
+                                  ("id", "board", "sender_short_name",
+                                   "date", "subject", "content"))
 
     def show_locals(self):
         win = tk.Toplevel(self.root)
