@@ -171,7 +171,8 @@ def get_interface(system_config:dict[str, Any]) -> meshtastic.stream_interface.S
             elif system_config['interface_type'] == 'tcp':
                 if not system_config['hostname']:
                     raise ValueError("Hostname must be specified for TCP interface")
-                return meshtastic.tcp_interface.TCPInterface(hostname=system_config['hostname'])
+                from tcp_health import ManagedTCPInterface
+                return ManagedTCPInterface(hostname=system_config['hostname'])
             else:
                 raise ValueError("Invalid interface type specified in config file")
         except PermissionError as e:

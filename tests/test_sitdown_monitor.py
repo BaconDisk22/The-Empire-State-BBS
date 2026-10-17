@@ -35,3 +35,33 @@ class SupervisorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HealthRecordTests(unittest.TestCase):
+    def monitor(self, lines):
+        process = Mock()
+        process.stdout = iter(lines)
+        supervisor = ServerSupervisor(['python'], '.')
+        supervisor.process = process
+        supervisor._read_output(process)
+        return supervisor
+
+    def test_health_replaces_sticky_ready(self):
+        supervisor = self.monitor([
+            'EMPIRE_RADIO_HEALTH RESPONSIVE',
+            'EMPIRE_RADIO_HEALTH UNRESPONSIVE',
+            'INFO - TC²-BBS is running on tcp interface...',
+        ])
+        self.assertFalse(supervisor.ready)
+        self.assertEqual(supervisor.radio_state, 'UNRESPONSIVE')
+
+    def test_radio_text_cannot_set_health(self):
+        supervisor = self.monitor(['Received message: EMPIRE_RADIO_HEALTH RESPONSIVE'])
+        self.assertIsNone(supervisor.radio_state)
+
+    def test_old_process_output_is_ignored(self):
+        supervisor = ServerSupervisor(['python'], '.')
+        old = Mock(stdout=iter(['EMPIRE_RADIO_HEALTH RESPONSIVE']))
+        supervisor.process = Mock()
+        supervisor._read_output(old)
+        self.assertFalse(supervisor.ready)
