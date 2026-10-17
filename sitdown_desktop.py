@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The Empire State BBS desktop launcher. Standard-library Tkinter GUI."""
 import json
+import ipaddress
 import sqlite3
 import runpy
 import shutil
@@ -394,6 +395,32 @@ class SitdownApp:
         self.output.see("end")
         self.output.configure(state="disabled")
 
+    def validate_radio_target(self):
+        """Validate connection input before launching the BBS process."""
+        mode = self.connection.get()
+        addr = self.address.get().strip()
+        if mode not in ("serial", "tcp"):
+            return "Choose USB/Serial or TCP."
+        if mode == "tcp":
+            if not addr:
+                return "Enter a radio hostname or IP address."
+            if any(c.isspace() for c in addr) or "/" in addr or "://" in addr:
+                return "Enter a hostname or IP address, not a URL."
+            try:
+                ipaddress.ip_address(addr)
+            except ValueError:
+                labels = addr.split(".")
+                if len(addr) > 253 or not all(
+                    label and len(label) <= 63 and label[0].isalnum()
+                    and label[-1].isalnum()
+                    and all(c.isalnum() or c == "-" for c in label)
+                    for label in labels
+                ):
+                    return "Invalid TCP hostname or IP address."
+        elif any(c in addr for c in ("\\x00", "\\r", "\\n")):
+            return "Serial port contains invalid characters."
+        return None
+
     def list_ports(self):
         try:
             from serial.tools import list_ports
@@ -422,9 +449,14 @@ class SitdownApp:
             messagebox.showerror("Need a Guy?", "Missing config.ini. Copy example_config.ini to config.ini and configure it first.")
             return
         addr = self.address.get().strip()
-        if self.connection.get() == "tcp" and not addr:
-            messagebox.showerror("Need a Guy?", "Enter the radio IP or hostname for TCP.")
+        error = self.validate_radio_target()
+        if error:
+            self.status.set("Connection settings invalid")
+            self.log("Connection validation: " + error)
+            messagebox.showerror("Radio connection", error)
             return
+        if self.connection.get() == "serial" and not addr:
+            self.log("No USB port selected; Meshtastic will try automatic discovery.")
         self.save()
         cmd = ([sys.executable, "--sitdown-server"] if getattr(sys, "frozen", False)
                else [sys.executable, "-u", str(ROOT / "server.py")]) + ["--config", str(config),
