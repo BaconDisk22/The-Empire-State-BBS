@@ -12,6 +12,7 @@ import time
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from sitdown_monitor import ServerSupervisor
+from radio_diagnostics import available_serial_ports, check_serial_target, check_tcp_target
 import zipfile
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -108,6 +109,7 @@ class SitdownApp:
         tk.Entry(left, textvariable=self.address, bg=bg, fg=cream,
                  insertbackground=cream, relief="flat").pack(fill="x", ipady=6, pady=4)
         self.styled_button(left, "FIND USB PORTS", self.list_ports, bg).pack(fill="x", pady=5)
+        self.styled_button(left, "CHECK RADIO TARGET", self.check_radio_target, bg).pack(fill="x", pady=5)
         center = tk.Frame(cards, bg=panel, padx=13, pady=12)
         center.pack(side="left", fill="both", expand=True, padx=5)
         self.panel_heading(center, "BBS SERVER")
@@ -594,13 +596,34 @@ class SitdownApp:
 
     def list_ports(self):
         try:
-            from serial.tools import list_ports
-            ports = [p.device for p in list_ports.comports()]
+            ports = available_serial_ports()
             self.log("USB ports: " + (", ".join(ports) if ports else "None detected"))
             if len(ports) == 1 and self.connection.get() == "serial":
                 self.address.set(ports[0])
         except ImportError:
             self.log("pyserial is missing. Install requirements.txt.")
+        except OSError as exc:
+            self.log(f"USB enumeration failed: {exc}")
+
+    def check_radio_target(self):
+        """Non-transmitting preflight; does not prove a Meshtastic session."""
+        if self.demo.get():
+            messagebox.showinfo("Radio preflight", "Demo mode: no radio checks or transmissions.")
+            return
+        error = self.validate_radio_target()
+        if error:
+            messagebox.showerror("Radio preflight", error)
+            return
+        mode, address = self.connection.get(), self.address.get().strip()
+        try:
+            if mode == "serial":
+                result = check_serial_target(address)
+            else:
+                result = check_tcp_target(address)
+        except (OSError, ImportError) as exc:
+            result = f"Radio preflight failed: {exc}"
+        self.log(result)
+        messagebox.showinfo("Radio preflight", result)
 
     def start(self):
         if self.supervisor and self.supervisor.running:
