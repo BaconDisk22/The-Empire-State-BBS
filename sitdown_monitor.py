@@ -35,7 +35,7 @@ class ServerSupervisor:
         options = dict(cwd=self.cwd, stdout=subprocess.PIPE,
                        stderr=subprocess.STDOUT, text=True, bufsize=1)
         if self.env_overrides:
-            options['env'] = {**os.environ, **self.env_overrides}
+            options["env"] = {**os.environ, **self.env_overrides}
         self.process = self.factory(self.command, **options)
         self.started_at = time.monotonic()
         threading.Thread(target=self._read_output, args=(self.process,), daemon=True).start()
@@ -45,8 +45,7 @@ class ServerSupervisor:
     def _read_output(self, process):
         try:
             for raw in process.stdout:
-                line = raw.rstrip("\r
-")
+                line = raw.rstrip("\r\n")
                 if READY_PATTERN.search(line):
                     self.ready = True
                     self.events.put(("state", "Server initialized (radio link unverified)"))

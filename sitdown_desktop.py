@@ -261,8 +261,7 @@ class SitdownApp:
             path = self.local_database()
             if not path:
                 content.insert("end", "No local BBS database found. Start the BBS "
-                               "to create records, then refresh.\
-")
+                               "to create records, then refresh.\\n")
             else:
                 try:
                     # Read-only URI prevents accidental writes and creation.
@@ -271,21 +270,17 @@ class SitdownApp:
                         names = {row[0] for row in conn.execute(
                             "SELECT name FROM sqlite_master WHERE type='table'")}
                         if table not in names:
-                            content.insert("end", "The database has no " + table + " table.\
-")
+                            content.insert("end", "The database has no " + table + " table.\\n")
                         else:
                             selected = ", ".join('"' + col + '"' for col in columns)
                             query = "SELECT " + selected + " FROM " + table + " ORDER BY id DESC LIMIT 100"
                             records = conn.execute(query).fetchall()
                             if not records:
-                                content.insert("end", "No saved records yet.\
-")
+                                content.insert("end", "No saved records yet.\\n")
                             for record in records:
                                 for col, value in zip(columns, record):
-                                    content.insert("end", f"{col}: {value}\
-")
-                                content.insert("end", "─" * 55 + "\
-")
+                                    content.insert("end", f"{col}: {value}\\n")
+                                content.insert("end", "─" * 55 + "\\n")
                 except sqlite3.Error as exc:
                     content.insert("end", "Could not read local BBS data: " + str(exc))
             content.configure(state="disabled")
@@ -356,10 +351,8 @@ class SitdownApp:
 
     def show_about(self):
         messagebox.showinfo("The Empire State BBS",
-                            "New York statewide Meshtastic BBS.\
-"
-                            "From the Five Boroughs to the North Country.\
-"
+                            "New York statewide Meshtastic BBS.\\n"
+                            "From the Five Boroughs to the North Country.\\n"
                             "Demo mode never connects or transmits.")
 
     def attitude_message(self):
@@ -396,8 +389,7 @@ class SitdownApp:
 
     def log(self, message):
         self.output.configure(state="normal")
-        self.output.insert("end", message + "
-")
+        self.output.insert("end", message + "\n")
         if int(self.output.index("end-1c").split(".")[0]) > 2000:
             self.output.delete("1.0", "300.0")
         self.output.see("end")
@@ -425,8 +417,7 @@ class SitdownApp:
                     for label in labels
                 ):
                     return "Invalid TCP hostname or IP address."
-        elif any(c in addr for c in ("\\x00", "\\r", "\
-")):
+        elif any(c in addr for c in ("\\x00", "\\r", "\\n")):
             return "Serial port contains invalid characters."
         return None
 
@@ -546,7 +537,7 @@ class SitdownApp:
             tk.Label(win, text=name, bg=THEME["background"], fg=THEME["text"]).pack(anchor="w", padx=20, pady=(12, 0))
             tk.Entry(win, textvariable=var, width=55, bg=THEME["panel"], fg=THEME["text"],
                      insertbackground=THEME["text"]).pack(padx=20)
-        tk.Label(win, text="EMPIRE STATE ATTITUDE — applies to local preview and radio main-menu heading",
+        tk.Label(win, text="EMPIRE STATE ATTITUDE — applies only to local interface and demo text",
                  bg=THEME["background"], fg=THEME["highlight"]).pack(padx=20, pady=(12, 4))
         for value, title in [("clean", "Clean — Classic New York (default)"),
                              ("spicy", "Spicy — A Little Mouthy"),
@@ -555,7 +546,7 @@ class SitdownApp:
                            command=lambda v=value: self.set_attitude(v),
                            bg=THEME["background"], fg=THEME["text"],
                            selectcolor=THEME["panel"], anchor="w").pack(anchor="w", padx=20)
-        tk.Label(win, text="Custom welcome is saved locally; only the radio main-menu heading uses attitude.",
+        tk.Label(win, text="Custom welcome is saved locally; radio reply integration is pending.",
                  bg=THEME["background"], fg=THEME["highlight"]).pack(padx=20, pady=10)
         self.styled_button(win, "Save", self.save, THEME["connected"]).pack(pady=12)
 
