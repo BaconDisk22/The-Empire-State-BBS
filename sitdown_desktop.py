@@ -392,8 +392,49 @@ class SitdownApp:
                 messagebox.showinfo("Select draft", "Choose a draft to edit.", parent=win)
                 return
             self.compose_local_mail_draft(paths[selected[0]])
+        def delete_selected():
+            selected = items.curselection()
+            if not selected:
+                messagebox.showinfo("Select draft", "Choose a draft to delete.", parent=win)
+                return
+            path = paths[selected[0]]
+            if not messagebox.askyesno("Delete local draft",
+                                       "Permanently delete this local draft?\\n"
+                                       "No mesh or BBS messages will be affected.",
+                                       parent=win):
+                return
+            try:
+                path.unlink()
+            except OSError as exc:
+                messagebox.showerror("Delete failed", str(exc), parent=win)
+                return
+            self.log("Deleted a local draft; no mesh message was changed.")
+            refresh()
+        def copy_selected():
+            selected = items.curselection()
+            if not selected:
+                messagebox.showinfo("Select draft", "Choose a draft to copy.", parent=win)
+                return
+            try:
+                record = json.loads(paths[selected[0]].read_text(encoding="utf-8"))
+                payload = "Recipient: {}\\nSubject: {}\\n\\n{}".format(
+                    record.get("recipient", ""), record.get("subject", ""),
+                    record.get("message", ""))
+                win.clipboard_clear()
+                win.clipboard_append(payload)
+                win.update()
+            except (OSError, ValueError, tk.TclError) as exc:
+                messagebox.showerror("Copy failed", str(exc), parent=win)
+                return
+            messagebox.showinfo("Copied locally",
+                                "Draft copied to clipboard. Nothing was sent.",
+                                parent=win)
         self.styled_button(win, "EDIT SELECTED DRAFT", edit_selected,
                            THEME["primary"]).pack(pady=8)
+        self.styled_button(win, "COPY SELECTED DRAFT", copy_selected,
+                           THEME["primary"]).pack(pady=(0, 8))
+        self.styled_button(win, "DELETE SELECTED LOCAL DRAFT", delete_selected,
+                           THEME["primary"]).pack(pady=(0, 8))
         self.styled_button(win, "REFRESH DRAFT LIST", refresh,
                            THEME["primary"]).pack(pady=(0, 10))
         refresh()
