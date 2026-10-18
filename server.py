@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-TC²-BBS Server for Meshtastic by TheCommsChannel (TC²)
+The Empire State BBS server for Meshtastic\nDerived from TC²-BBS by TheCommsChannel (original upstream credit retained).
 Date: 07/14/2024
 Version: 0.1.6
 
@@ -39,16 +39,7 @@ js8call_handler.setFormatter(js8call_formatter)
 js8call_logger.addHandler(js8call_handler)
 
 def display_banner():
-    banner = """
-████████╗ ██████╗██████╗       ██████╗ ██████╗ ███████╗
-╚══██╔══╝██╔════╝╚════██╗      ██╔══██╗██╔══██╗██╔════╝
-   ██║   ██║      █████╔╝█████╗██████╔╝██████╔╝███████╗
-   ██║   ██║     ██╔═══╝ ╚════╝██╔══██╗██╔══██╗╚════██║
-   ██║   ╚██████╗███████╗      ██████╔╝██████╔╝███████║
-   ╚═╝    ╚═════╝╚══════╝      ╚═════╝ ╚═════╝ ╚══════╝
-Meshtastic Version
-"""
-    print(banner)
+    banner = """\n======================================\n       THE EMPIRE STATE BBS\n  From the Boroughs to the North Country\n======================================\nMeshtastic BBS Server\n"""\n    print(banner)
 
 def run_js8call(interface, stopping):
     """Keep optional blocking JS8 I/O off the radio health loop.
@@ -102,7 +93,7 @@ def main():
         pub.subscribe(receive_packet, system_config['mqtt_topic'])
         threading.Thread(target=run_js8call, args=(interface, stopping),
                          daemon=True, name="JS8Call").start()
-        logging.info(f"TC²-BBS is running on {system_config['interface_type']} interface...")
+        logging.info(f"The Empire State BBS is running on {system_config['interface_type']} interface...")
         if system_config['interface_type'] == 'tcp':
             from tcp_health import ProtocolWatchdog
             watchdog = ProtocolWatchdog(interface, health)

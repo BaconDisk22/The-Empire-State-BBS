@@ -40,17 +40,17 @@ def build_menu(items, menu_name):
         elif item.strip() == 'U':
             menu_str += "[U] The Backroom\n"
         elif item.strip() == 'X':
-            menu_str += "E[X]IT - Fuggedaboutit\n"
+            menu_str += "E[X]IT - See ya around\n"
         elif item.strip() == 'M':
             menu_str += "[M] A Word With You\n"
         elif item.strip() == 'C':
-            menu_str += "[C] What Exit?\n"
+            menu_str += "[C] The Channel Directory\n"
         elif item.strip() == 'J':
             menu_str += "[J]S8CALL\n"
         elif item.strip() == 'S':
-            menu_str += "[S] Who's Connected?\n"
+            menu_str += "[S] The Locals\n"
         elif item.strip() == 'F':
-            menu_str += "[F] Jersey Wisdom\n"
+            menu_str += "[F] Empire Wisdom\n"
         elif item.strip() == 'W':
             menu_str += "[W]all of Shame\n"
     return menu_str
@@ -100,7 +100,7 @@ def handle_bulletin_command(sender_id, interface):
 
 
 def handle_exit_command(sender_id, interface):
-    send_message("Fuggedaboutit! Send HELP to come back.", sender_id, interface)
+    send_message("See ya around! Send HELP to come back.", sender_id, interface)
     update_user_state(sender_id, None)
 
 
