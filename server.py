@@ -39,7 +39,14 @@ js8call_handler.setFormatter(js8call_formatter)
 js8call_logger.addHandler(js8call_handler)
 
 def display_banner():
-    banner = """\n======================================\n       THE EMPIRE STATE BBS\n  From the Boroughs to the North Country\n======================================\nMeshtastic BBS Server\n"""\n    print(banner)
+    banner = """
+======================================
+       THE EMPIRE STATE BBS
+  From the Boroughs to the North Country
+======================================
+Meshtastic BBS Server
+"""
+    print(banner)
 
 def run_js8call(interface, stopping):
     """Keep optional blocking JS8 I/O off the radio health loop.
