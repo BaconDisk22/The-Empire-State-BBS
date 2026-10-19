@@ -454,11 +454,33 @@ class SitdownApp:
         refresh()
 
     def show_messages(self):
-        self.browse_local_records("The Grapevine / Local Mail", "mail",
-                                  ("id", "sender_short_name", "recipient",
-                                   "date", "subject", "content"))
-        self.list_local_mail_drafts()
-        self.compose_local_mail_draft()
+        """Open one Grapevine hub; secondary tools open only when requested."""
+        win = tk.Toplevel(self.root)
+        win.title("The Grapevine | Empire State BBS")
+        win.geometry("660x380")
+        win.configure(bg=THEME["background"])
+        tk.Label(win, text="THE GRAPEVINE", bg=THEME["background"],
+                 fg=THEME["highlight"], font=("Helvetica", 22, "bold")).pack(
+                     anchor="w", padx=24, pady=(24, 8))
+        tk.Label(win, text="Local BBS mail and saved drafts",
+                 bg=THEME["background"], fg=THEME["text"],
+                 font=("Helvetica", 12)).pack(anchor="w", padx=24, pady=(0, 18))
+        tk.Label(win, text="Mail is read from this Mac's local BBS database. "
+                 "Drafts are not transmitted over the mesh.",
+                 bg=THEME["background"], fg=THEME["text"],
+                 wraplength=590, justify="left").pack(
+                     anchor="w", padx=24, pady=(0, 18))
+        actions = (
+            ("VIEW LOCAL MAIL", lambda: self.browse_local_records(
+                "The Grapevine / Local Mail", "mail",
+                ("id", "sender_short_name", "recipient", "date",
+                 "subject", "content"))),
+            ("SAVED DRAFTS", self.list_local_mail_drafts),
+            ("NEW LOCAL DRAFT", self.compose_local_mail_draft),
+        )
+        for label, action in actions:
+            self.styled_button(win, label, action, THEME["primary"]).pack(
+                fill="x", padx=24, pady=5)
 
     def show_bulletin(self):
         self.browse_local_records("The Bulletin / Local Posts", "bulletins",
