@@ -45,7 +45,7 @@ These steps address macOS security prompts for an unsigned app. If the icon boun
 
 ## Source and licensing
 
-The implementation was adapted from [BaconDisk22/The-Sitdown-BBS](https://github.com/BaconDisk22/The-Sitdown-BBS), itself based on TC²-BBS. Preserve original copyright notices and GPLv3 license during migration.
+**The Empire State BBS** is an independently branded New York adaptation of [The Sitdown BBS](https://github.com/BaconDisk22/The-Sitdown-BBS), which is based on **TC²-BBS by TheCommsChannel**. Thank you to TheCommsChannel and the original contributors for the BBS foundation. Their work made this edition possible.\n\nThe original source credits and copyright notices remain in the source files. This project continues to be distributed under the **GNU General Public License v3.0**; see [LICENSE](LICENSE). New York-themed names, menus, artwork and desktop presentation are specific to this edition.
 
 **The Sitdown BBS remains an independent New Jersey project.**
 

@@ -531,10 +531,16 @@ class SitdownApp:
         messagebox.showinfo("Empire Connection | Radio Status", status)
 
     def show_about(self):
-        messagebox.showinfo("The Empire State BBS",
-                            "New York statewide Meshtastic BBS.\\n"
-                            "From the Five Boroughs to the North Country.\\n"
-                            "Demo mode never connects or transmits.")
+        messagebox.showinfo(
+            "The Empire State BBS",
+            "New York statewide Meshtastic BBS.\n"
+            "From the Five Boroughs to the North Country.\n"
+            "Demo mode never connects or transmits.\n\n"
+            "Credits: Based on TC²-BBS by TheCommsChannel,\n"
+            "with adaptations through The Sitdown BBS.\n"
+            "Original contributors retain their credits.\n"
+            "Licensed under GNU GPLv3. See README and LICENSE."
+        )
 
     def attitude_message(self):
         return {
