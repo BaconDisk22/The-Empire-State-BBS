@@ -38,6 +38,8 @@ class DesktopStore:
                 CREATE TABLE IF NOT EXISTS nodes (
                     id TEXT PRIMARY KEY, name TEXT, seen REAL,
                     snr REAL, rssi REAL);
+                CREATE TABLE IF NOT EXISTS retries (
+                    original TEXT PRIMARY KEY, replacement TEXT UNIQUE NOT NULL);
             ''')
 
     @contextmanager
@@ -113,6 +115,21 @@ class DesktopStore:
             raise ValueError(f'Transmission exceeds {MAX_PAYLOAD} UTF-8 bytes; shorten it. Local posts may be longer.')
         return text
 
+    def retry_draft(self, post_id):
+        """A failed attempt may create one replacement draft, never a radio send."""
+        replacement = uuid.uuid4().hex
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM posts WHERE id=? AND state='failed'", (post_id,)).fetchone()
+            if not row:
+                raise ValueError('Only failed attempts can be retried; unknown delivery must not be resent')
+            if db.execute('SELECT 1 FROM retries WHERE original=?', (post_id,)).fetchone():
+                raise ValueError('A replacement draft already exists for this attempt')
+            db.execute('INSERT INTO retries VALUES (?,?)', (post_id, replacement))
+            db.execute('INSERT INTO posts VALUES (?,?,?,?,?,?,?,?,?,?)',
+                       (replacement, row['kind'], row['recipient'], row['subject'], row['body'], row['parent'],
+                        'draft', time.time(), 'Explicit retry draft of ' + post_id + '; not transmitted', None))
+        return replacement
+
     def queue(self, post_id):
         self.payload(self.get(post_id))
         self.change(post_id, 'draft', 'queued', 'Explicit send requested; no automatic retry')
@@ -151,6 +168,7 @@ class RadioSession:
                               str(packet_id) if packet_id is not None else None)
 
     def observe(self, packet):
+        self.observe_routing(packet)
         sender = packet.get('fromId')
         if not isinstance(sender, str) or not NODE.fullmatch(sender):
             number = packet.get('from')
@@ -180,6 +198,45 @@ class RadioSession:
                 # Missing IDs cannot safely be deduplicated by text: repeated text may be intentional.
                 key = f'{sender}:{packet_id}' if packet_id else uuid.uuid4().hex
                 db.execute('INSERT OR IGNORE INTO received VALUES (?,?,?,?)', (key, sender, body, now))
+
+    def observe_routing(self, packet):
+        """Only a matching recipient's routing response can resolve a submission."""
+        from meshtastic.protobuf import mesh_pb2
+        from google.protobuf.message import DecodeError
+        decoded = packet.get('decoded')
+        if not isinstance(decoded, dict) or decoded.get('portnum') != 'ROUTING_APP':
+            return
+        local_number = getattr(getattr(self.interface, 'localNode', None), 'nodeNum', None)
+        if not isinstance(local_number, int) or isinstance(local_number, bool) or packet.get('to') != local_number:
+            return
+        request = decoded.get('requestId')
+        payload = decoded.get('payload')
+        if not isinstance(request, int) or isinstance(request, bool) or not 0 < request <= 0xffffffff or not isinstance(payload, bytes):
+            return
+        routing = mesh_pb2.Routing()
+        try:
+            routing.ParseFromString(payload)
+        except DecodeError:
+            return
+        if routing.WhichOneof('variant') != 'error_reason':
+            return
+        sender = packet.get('fromId')
+        if not isinstance(sender, str) or not NODE.fullmatch(sender):
+            number = packet.get('from')
+            if not isinstance(number, int) or isinstance(number, bool) or not 0 < number < 0xffffffff:
+                return
+            sender = f'!{number:08x}'
+        # Serialize with send so a fast response cannot beat packet-ID persistence.
+        with self.lock, self.store.connect() as db:
+            rows = db.execute("SELECT id FROM posts WHERE packet_id=? AND recipient=? AND state='sent'",
+                              (str(request), sender.lower())).fetchall()
+            if len(rows) != 1:
+                return
+            success = routing.error_reason == 0
+            detail = ('Recipient routing acknowledgment observed; not proof of human reading. Hardware RF testing remains unverified'
+                      if success else 'Recipient routing error ' + str(routing.error_reason) + '; receipt not confirmed')
+            db.execute('UPDATE posts SET state=?, detail=? WHERE id=?',
+                       ('acknowledged' if success else 'failed', detail, rows[0]['id']))
 
     def read_commands(self, stream, stopping):
         if stream is None:

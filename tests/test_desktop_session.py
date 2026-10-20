@@ -15,6 +15,7 @@ class DesktopSessionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.store = DesktopStore(Path(self.temp.name) / 'desktop.db')
         self.radio = Mock()
+        self.radio.localNode.nodeNum = 0x11111111
         self.radio.sendText.return_value.id = 42
         self.session = RadioSession(self.radio, self.store)
 
@@ -84,6 +85,56 @@ class DesktopSessionTests(unittest.TestCase):
         RadioSession(self.radio, self.store)
         self.assertEqual(self.store.get(post)['state'], 'queued')
         self.radio.sendText.assert_not_called()
+
+    def test_retry_creates_only_one_durable_draft_and_never_sends(self):
+        post = self.draft()
+        self.store.queue(post)
+        RadioSession(self.radio, self.store, available=lambda: False).send(post)
+        replacement = self.store.retry_draft(post)
+        self.assertEqual(self.store.get(post)['state'], 'failed')
+        self.assertEqual(self.store.get(replacement)['state'], 'draft')
+        self.assertEqual(self.store.get(replacement)['body'], 'New York')
+        with self.assertRaises(ValueError):
+            DesktopStore(self.store.path).retry_draft(post)
+        self.radio.sendText.assert_not_called()
+
+    def test_ambiguous_and_submitted_messages_cannot_be_retried(self):
+        for state in ('draft', 'queued', 'sending', 'sent', 'unknown', 'acknowledged'):
+            post = self.draft()
+            with self.store.connect() as db:
+                db.execute('UPDATE posts SET state=? WHERE id=?', (state, post))
+            with self.subTest(state=state), self.assertRaises(ValueError):
+                self.store.retry_draft(post)
+
+    def routing_packet(self, reason=0, sender='!1234abcd', request=42):
+        from meshtastic.protobuf import mesh_pb2
+        return {'fromId': sender, 'to': 0x11111111, 'decoded': {'portnum': 'ROUTING_APP', 'requestId': request,
+                'payload': mesh_pb2.Routing(error_reason=reason).SerializeToString()}}
+
+    def test_only_matching_recipient_routing_acknowledges_submission(self):
+        post = self.draft()
+        self.store.queue(post)
+        self.session.send(post)
+        for packet in (self.routing_packet(sender='!11111111'), self.routing_packet(request=43),
+                       dict(self.routing_packet(), to=0x22222222),
+                       {'fromId': '!1234abcd', 'decoded': {'portnum': 'TEXT_MESSAGE_APP', 'requestId': 42}},
+                       {'fromId': '!1234abcd', 'decoded': {'portnum': 'ROUTING_APP', 'requestId': 42, 'payload': b'\xff'}}):
+            self.session.observe(packet)
+            self.assertEqual(self.store.get(post)['state'], 'sent')
+        self.session.observe(self.routing_packet())
+        self.assertEqual(DesktopStore(self.store.path).get(post)['state'], 'acknowledged')
+        self.session.observe(self.routing_packet(reason=1))
+        self.assertEqual(self.store.get(post)['state'], 'acknowledged')
+        self.assertEqual(self.radio.sendText.call_count, 1)
+
+    def test_recipient_routing_error_records_failure_without_retry(self):
+        post = self.draft()
+        self.store.queue(post)
+        self.session.send(post)
+        self.session.observe(self.routing_packet(reason=1))
+        self.assertEqual(self.store.get(post)['state'], 'failed')
+        self.assertIn('routing error', self.store.get(post)['detail'])
+        self.assertEqual(self.radio.sendText.call_count, 1)
 
     def test_unavailable_radio_fails_before_submission(self):
         post = self.draft()

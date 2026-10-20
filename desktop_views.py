@@ -148,12 +148,32 @@ def open_posts(app, kind):
     if kind == 'bulletin':
         tk.Button(actions, text='REPLY LOCALLY', command=lambda: compose(True)).pack(side='left', padx=5)
     tk.Button(actions, text='SEND SELECTED ONCE…', command=send).pack(side='left', padx=5)
+    def retry():
+        record = selected()
+        if not record or record.get('state') != 'failed':
+            notice.set('Select a failed attempt. Unknown delivery cannot be retried.')
+            return
+        if not messagebox.askyesno('Create a retry draft?',
+                'This creates a local replacement draft and preserves the failed attempt. '
+                'A later send requires another confirmation. A retry can duplicate a message if it was received despite the error.', parent=win):
+            return
+        try:
+            app.store.retry_draft(record['id'])
+            notice.set('Retry draft saved locally. Select it and Send once to transmit.')
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            notice.set(str(exc))
+    tk.Button(actions, text='RETRY FAILED AS DRAFT…', command=retry).pack(side='left', padx=5)
     if kind == 'mail':
         tk.Button(actions, text='REPLY TO RECEIVED…', command=lambda: compose(True)).pack(side='left', padx=5)
         tk.Button(actions, text='LEGACY DRAFTS', command=app.list_local_mail_drafts).pack(side='left', padx=5)
     tk.Button(actions, text='BBS DATABASE', command=lambda: app.browse_local_records(
         'Local BBS ' + kind, 'mail' if kind == 'mail' else 'bulletins',
         ('id', 'sender_short_name', 'subject', 'content'))).pack(side='left', padx=5)
+    buttons = actions.winfo_children()
+    for button in buttons:
+        button.pack_forget()
+    for index, button in enumerate(buttons):
+        button.grid(row=index // 3, column=index % 3, padx=5, pady=3)
     listing.bind('<<TreeviewSelect>>', show_detail)
     refresh()
 
