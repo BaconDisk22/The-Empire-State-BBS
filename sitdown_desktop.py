@@ -104,20 +104,25 @@ class SitdownApp:
             self.styled_button(nav, name, action, panel).pack(side="left", padx=(0, 5))
         cards = tk.Frame(self.root, bg=bg)
         cards.pack(fill="x", padx=14, pady=6)
-        left = tk.Frame(cards, bg=panel, padx=13, pady=12)
+        left = tk.Frame(cards, bg=panel, padx=13, pady=12,
+                        highlightthickness=2, highlightbackground=panel)
+        self.connection_panel = left
         left.pack(side="left", fill="both", expand=True, padx=(0, 5))
         self.panel_heading(left, "THE EMPIRE CONNECTION")
         tk.Label(left, textvariable=self.status, bg=panel, fg=c["connected"],
                  font=("Menlo", 12, "bold")).pack(anchor="w", pady=6)
-        tk.Label(left, textvariable=self.radio_health, bg=panel, fg=gold).pack(anchor="w")
+        tk.Label(left, textvariable=self.radio_health, bg=panel, fg=gold,
+                 wraplength=300, justify="left").pack(anchor="w")
         tk.Label(left, textvariable=self.node_count, bg=panel, fg=cream).pack(anchor="w")
         tk.Label(left, textvariable=self.uptime, bg=panel, fg=cream).pack(anchor="w")
         for name, value in [("USB / Serial radio", "serial"), ("Network / TCP radio", "tcp")]:
             tk.Radiobutton(left, text=name, variable=self.connection, value=value,
                            bg=panel, fg=cream, selectcolor=bg).pack(anchor="w")
         tk.Label(left, text="Serial port / TCP host", bg=panel, fg=gold).pack(anchor="w")
-        tk.Entry(left, textvariable=self.address, bg=bg, fg=cream,
-                 insertbackground=cream, relief="flat").pack(fill="x", ipady=6, pady=4)
+        self.connection_address = tk.Entry(
+            left, textvariable=self.address, bg=bg, fg=cream,
+            insertbackground=cream, relief="flat")
+        self.connection_address.pack(fill="x", ipady=6, pady=4)
         self.styled_button(left, "FIND USB PORTS", self.list_ports, bg).pack(fill="x", pady=5)
         self.styled_button(left, "CHECK RADIO TARGET", self.check_radio_target, bg).pack(fill="x", pady=5)
         center = tk.Frame(cards, bg=panel, padx=13, pady=12)
@@ -467,21 +472,22 @@ class SitdownApp:
         open_nodes(self)
 
     def show_radio(self):
-        self.log("THE EMPIRE CONNECTION: Choose USB or TCP and start the BBS.")
+        """Navigate to existing controls without touching the active radio session."""
+        self.root.deiconify()
+        self.root.lift()
+        self.connection_panel.configure(highlightbackground=self.colors["highlight"])
+        self.connection_address.focus_set()
+        self.refresh_radio_health()
+
+    def refresh_radio_health(self):
+        """Display only the state already observed by the running supervisor."""
         monitor = self.supervisor
-        if self.demo.get():
-            status = "DEMO MODE — radio disabled; no transmissions possible."
-        elif monitor is None or not monitor.running:
-            status = "BBS stopped — no active radio connection."
-        elif monitor.radio_state:
-            status = f"Radio: {monitor.radio_state} — local protocol only; RF delivery unverified."
-        elif monitor.ready:
-            status = ("BBS process initialized — radio link and message "
-                      "delivery are NOT verified.")
-        else:
-            status = "BBS process running — waiting for initialization; radio unverified."
-        self.log(status)
-        self.radio_health.set(status)
+        present = None
+        if self.connection.get() == "serial" and self.address.get().strip() and self.last_serial_ports is not None:
+            present = self.address.get().strip() in self.last_serial_ports
+        self.radio_health.set(radio_health_label(self.demo.get(),
+            bool(monitor and monitor.running), bool(monitor and monitor.ready),
+            present, self.waiting_for_usb, monitor.radio_state if monitor else None))
 
     def show_about(self):
         messagebox.showinfo(
@@ -688,12 +694,7 @@ class SitdownApp:
             self.last_serial_scan = now
             self.watch_serial_ports()
         monitor = self.supervisor
-        present = None
-        if self.connection.get() == "serial" and self.address.get().strip() and self.last_serial_ports is not None:
-            present = self.address.get().strip() in self.last_serial_ports
-        self.radio_health.set(radio_health_label(self.demo.get(),
-            bool(monitor and monitor.running), bool(monitor and monitor.ready),
-            present, self.waiting_for_usb, monitor.radio_state if monitor else None))
+        self.refresh_radio_health()
         if monitor:
             for kind, value in monitor.poll_events():
                 if kind == "log":
