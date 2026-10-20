@@ -123,6 +123,12 @@ class DesktopSessionTests(unittest.TestCase):
         self.assertTrue(self.radio.sendText.call_args.args[0].startswith('Bulletin: Reply: '))
         self.assertEqual(reopened.get(parent)['state'], 'draft')
 
+    def test_subject_cannot_embed_newline_or_tab(self):
+        for subject in ('Hello\nworld', 'Hello\rworld', 'Hello\tworld'):
+            with self.subTest(subject=subject), self.assertRaises(ValueError):
+                self.draft(subject=subject)
+        self.assertEqual(self.store.records('posts'), [])
+
     def test_missing_reply_parent_rejected(self):
         with self.assertRaises(ValueError):
             self.draft(kind='bulletin', parent='missing')
