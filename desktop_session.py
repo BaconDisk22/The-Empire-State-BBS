@@ -59,6 +59,8 @@ class DesktopStore:
         subject, body, recipient = subject.strip(), body.strip(), recipient.strip().lower()
         if not subject or not body or len(subject) > 120 or len(body) > 4000:
             raise ValueError('Subject and body required (120 / 4000 characters maximum)')
+        if '\n' in subject or '\r' in subject or '\t' in subject:
+            raise ValueError('Subject must fit on one line')
         if any(ord(c) < 32 and c not in '\n\t' for c in subject + body):
             raise ValueError('Control characters are not allowed')
         if recipient and (not NODE.fullmatch(recipient) or recipient in ('!ffffffff', '!00000000')):
