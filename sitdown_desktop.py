@@ -15,6 +15,8 @@ from sitdown_monitor import ServerSupervisor
 from radio_health import radio_health_label
 from radio_diagnostics import available_serial_ports, check_serial_target, check_tcp_target
 import zipfile
+from desktop_session import DesktopStore
+from desktop_views import open_posts, open_nodes
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 DATA = Path.home() / ".empire-state-bbs"
@@ -32,6 +34,8 @@ COMMANDS = [
 class SitdownApp:
     def __init__(self, root):
         self.root = root
+        self.store = DesktopStore(DATA / "desktop-state.db",
+                                  (DATA if getattr(sys, "frozen", False) else ROOT) / "bulletins.db")
         self.proc = None
         self.supervisor = None
         self.restart_at = None
@@ -454,85 +458,13 @@ class SitdownApp:
         refresh()
 
     def show_messages(self):
-        """Open one Grapevine hub; secondary tools open only when requested."""
-        win = tk.Toplevel(self.root)
-        win.title("The Grapevine | Empire State BBS")
-        win.geometry("660x380")
-        win.configure(bg=THEME["background"])
-        tk.Label(win, text="THE GRAPEVINE", bg=THEME["background"],
-                 fg=THEME["highlight"], font=("Helvetica", 22, "bold")).pack(
-                     anchor="w", padx=24, pady=(24, 8))
-        tk.Label(win, text="Local BBS mail and saved drafts",
-                 bg=THEME["background"], fg=THEME["text"],
-                 font=("Helvetica", 12)).pack(anchor="w", padx=24, pady=(0, 18))
-        tk.Label(win, text="Mail is read from this Mac's local BBS database. "
-                 "Drafts are not transmitted over the mesh.",
-                 bg=THEME["background"], fg=THEME["text"],
-                 wraplength=590, justify="left").pack(
-                     anchor="w", padx=24, pady=(0, 18))
-        actions = (
-            ("VIEW LOCAL MAIL", lambda: self.browse_local_records(
-                "The Grapevine / Local Mail", "mail",
-                ("id", "sender_short_name", "recipient", "date",
-                 "subject", "content"))),
-            ("SAVED DRAFTS", self.list_local_mail_drafts),
-            ("NEW LOCAL DRAFT", self.compose_local_mail_draft),
-        )
-        for label, action in actions:
-            self.styled_button(win, label, action, THEME["primary"]).pack(
-                fill="x", padx=24, pady=5)
+        open_posts(self, "mail")
 
     def show_bulletin(self):
-        self.browse_local_records("The Bulletin / Local Posts", "bulletins",
-                                  ("id", "board", "sender_short_name",
-                                   "date", "subject", "content"))
+        open_posts(self, "bulletin")
 
     def show_locals(self):
-        """Display only nodes actually observed in BBS process logs."""
-        from tkinter import ttk
-        win = tk.Toplevel(self.root)
-        win.title("The Locals | Observed Meshtastic Nodes")
-        win.geometry("800x510")
-        win.configure(bg=THEME["background"])
-        tk.Label(win, text="THE LOCALS", bg=THEME["background"],
-                 fg=THEME["highlight"], font=("Helvetica", 22, "bold")).pack(
-                     anchor="w", padx=20, pady=(18, 4))
-        tk.Label(win, text="Observed messages in the current BBS session. "
-                 "Last seen means a log event, not a verified online status. "
-                 "Signal and battery telemetry are unavailable in these logs.",
-                 bg=THEME["background"], fg=THEME["text"], wraplength=740,
-                 justify="left").pack(anchor="w", padx=20, pady=(0, 12))
-        summary = tk.StringVar(value="Loading observed nodes...")
-        tk.Label(win, textvariable=summary, bg=THEME["background"],
-                 fg=THEME["highlight"], font=("Menlo", 11, "bold")).pack(
-                     anchor="w", padx=20, pady=(0, 8))
-        columns = ("node", "name", "seen", "age")
-        listing = ttk.Treeview(win, columns=columns, show="headings", height=13)
-        for key, label, width in (("node", "Node ID", 150),
-                                  ("name", "Observed Name", 210),
-                                  ("seen", "Last Log Event", 175),
-                                  ("age", "Elapsed", 110)):
-            listing.heading(key, text=label)
-            listing.column(key, width=width, stretch=True)
-        listing.pack(fill="both", expand=True, padx=20, pady=5)
-        def refresh():
-            for item in listing.get_children():
-                listing.delete(item)
-            nodes = dict(self.supervisor.nodes) if self.supervisor else {}
-            now = time.time()
-            for node_id, (name, last_seen) in sorted(
-                    nodes.items(), key=lambda item: item[1][1], reverse=True):
-                elapsed = max(0, int(now - last_seen))
-                age = f"{elapsed}s" if elapsed < 60 else (
-                    f"{elapsed // 60}m" if elapsed < 3600 else f"{elapsed // 3600}h")
-                listing.insert("", "end", values=(
-                    node_id, name, time.strftime("%Y-%m-%d %H:%M:%S",
-                                                  time.localtime(last_seen)), age))
-            summary.set(f"Observed this session: {len(nodes)} node(s)"
-                        if nodes else "No nodes observed in the current session")
-        self.styled_button(win, "REFRESH NODE ACTIVITY", refresh,
-                           THEME["primary"]).pack(pady=12)
-        refresh()
+        open_nodes(self)
 
     def show_radio(self):
         self.log("THE EMPIRE CONNECTION: Choose USB or TCP and start the BBS.")
@@ -741,7 +673,8 @@ class SitdownApp:
             cmd += ["--host" if self.connection.get() == "tcp" else "--port", addr]
         try:
             self.supervisor = ServerSupervisor(cmd, DATA if getattr(sys, "frozen", False) else ROOT,
-                                               env_overrides={"EMPIRE_ATTITUDE": self.attitude.get()})
+                                               env_overrides={"EMPIRE_ATTITUDE": self.attitude.get(),
+                                                              "EMPIRE_DESKTOP_STORE": str(DATA / "desktop-state.db")})
             self.supervisor.start()
             self.status.set("Starting...")
             self.log("Starting The Empire State BBS...")
@@ -864,6 +797,9 @@ if __name__ == "__main__":
         root = tk.Tk()
         root.withdraw()
         app = SitdownApp(root)
+        app.show_messages()
+        app.show_bulletin()
+        app.show_locals()
         root.update_idletasks()
         if not app.output.winfo_exists():
             raise RuntimeError("Dashboard failed to initialize")

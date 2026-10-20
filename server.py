@@ -12,6 +12,10 @@ database for data storage. Mail messages and bulletins are synced with
 other BBS servers listed in the config.ini file.
 """
 
+import os
+import sys
+from desktop_session import DesktopStore, RadioSession
+
 import logging
 import time
 import threading
@@ -82,8 +86,11 @@ def main():
     interface = None
     stopping = threading.Event()
     watchdog = None
+    desktop = None
 
     def receive_packet(packet, interface):
+        if desktop:
+            desktop.observe(packet)
         on_receive(packet, interface)
 
     def health(state):
@@ -104,6 +111,11 @@ def main():
         if system_config['interface_type'] == 'tcp':
             from tcp_health import ProtocolWatchdog
             watchdog = ProtocolWatchdog(interface, health)
+        if os.environ.get("EMPIRE_DESKTOP_STORE"):
+            desktop = RadioSession(interface, DesktopStore(os.environ["EMPIRE_DESKTOP_STORE"], "bulletins.db"),
+                                   lambda: not stopping.is_set() and (watchdog is None or watchdog.state == "RESPONSIVE"))
+            threading.Thread(target=desktop.read_commands, args=(sys.stdin, stopping),
+                             daemon=True, name="DesktopCommands").start()
         while True:
             if watchdog and not watchdog.tick():
                 logging.error("Radio session failed; stopping. Desktop recovery requires opt-in.")
