@@ -58,8 +58,7 @@ jobs:
         run: |
           test "$(uname -m)" = "x86_64"
           python -m compileall -q sitdown_desktop.py sitdown_monitor.py command_handlers.py
-          python -m unittest discover -s tests -p 'test_sitdown_*.py'
-          python -m unittest discover -s tests -p 'test_jersey_replies.py'
+          python -m unittest discover -s tests -p 'test_*.py'
       - name: Generate Empire State icon
         run: |
           python scripts/make_icon.py
