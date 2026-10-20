@@ -155,6 +155,33 @@ class DesktopSessionTests(unittest.TestCase):
         self.assertIsNone(node['rssi'])
         self.radio.sendText.assert_not_called()
 
+    def test_received_reply_is_a_persistent_local_draft_until_explicit_send(self):
+        self.session.observe({'fromId': '!1234abcd', 'id': 99, 'decoded': {'text': 'Hello\nthere'}})
+        received = self.store.records('received')[0]
+        fields = self.store.reply_fields(received['key'])
+        self.assertEqual(fields, {'recipient': '!1234abcd', 'subject': 'Re: received message'})
+        self.assertEqual(self.store.records('posts'), [])
+        post = self.store.create('mail', body='My reply', **fields)
+        reopened = DesktopStore(self.store.path)
+        self.assertEqual(reopened.get(post)['state'], 'draft')
+        self.assertIsNone(reopened.get(post)['parent'])
+        self.radio.sendText.assert_not_called()
+        reopened.queue(post)
+        self.session.send(post)
+        self.radio.sendText.assert_called_once_with('Re: received message\nMy reply', destinationId='!1234abcd', wantAck=True)
+
+    def test_reply_requires_a_received_message_with_valid_sender(self):
+        with self.assertRaises(ValueError):
+            self.store.reply_fields('missing')
+        for sender in ('!00000000', '!ffffffff', 'invalid', None):
+            with self.subTest(sender=sender):
+                with self.store.connect() as db:
+                    db.execute('INSERT OR REPLACE INTO received VALUES (?,?,?,?)', ('bad', sender, 'text', 1))
+                with self.assertRaises(ValueError):
+                    self.store.reply_fields('bad')
+        self.assertEqual(self.store.records('posts'), [])
+        self.radio.sendText.assert_not_called()
+
     def test_reserved_sender_ids_are_ignored(self):
         for sender in ('!00000000', '!ffffffff'):
             with self.subTest(sender=sender):
