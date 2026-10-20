@@ -143,6 +143,13 @@ class DesktopSessionTests(unittest.TestCase):
         self.assertIsNone(node['rssi'])
         self.radio.sendText.assert_not_called()
 
+    def test_reserved_sender_ids_are_ignored(self):
+        for sender in ('!00000000', '!ffffffff'):
+            with self.subTest(sender=sender):
+                self.session.observe({'fromId': sender, 'id': 7, 'decoded': {'text': 'fake'}})
+        self.assertEqual(self.store.records('nodes'), [])
+        self.assertEqual(self.store.records('received'), [])
+
     def test_same_packet_id_from_different_nodes_is_retained(self):
         for sender in (1, 2):
             self.session.observe({'from': sender, 'id': 9, 'decoded': {'text': 'same'}})
