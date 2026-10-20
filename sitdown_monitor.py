@@ -36,7 +36,7 @@ class ServerSupervisor:
         self.stopping = False
         self.ready = False
         self.radio_state = None
-        options = dict(cwd=self.cwd, stdout=subprocess.PIPE,
+        options = dict(cwd=self.cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                        stderr=subprocess.STDOUT, text=True, bufsize=1)
         if self.env_overrides:
             options["env"] = {**os.environ, **self.env_overrides}
@@ -71,6 +71,14 @@ class ServerSupervisor:
         finally:
             self.events.put(("reader_done", None))
 
+    def send_desktop(self, post_id):
+        """Write one explicit command; never retain a replay queue."""
+        import json
+        if not self.running or not self.ready or self.stopping:
+            raise ValueError("Server radio is not ready")
+        self.process.stdin.write(json.dumps({"send": post_id}) + "\n")
+        self.process.stdin.flush()
+
     def uptime_seconds(self):
         return int(time.monotonic() - self.started_at) if self.started_at is not None and self.running else 0
 
@@ -88,6 +96,8 @@ class ServerSupervisor:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=3)
+        if process is not None and process.stdin:
+            process.stdin.close()
         self.process = None
         self.started_at = None
         self.ready = False

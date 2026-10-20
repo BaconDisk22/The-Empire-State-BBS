@@ -51,8 +51,18 @@ These steps address macOS security prompts for an unsigned app. If the icon boun
 
 ## Empire State gold dashboard
 
-The Mac launcher uses a black-and-antique-gold statewide New York dashboard inspired by the approved design concept, with a matching original skyline app icon. Panels show actual process status, observed nodes, server logs, radio configuration and local attitude controls. The Grapevine and Bulletin shortcuts open the supported radio command guide; they are not separate message browsers yet. Demo mode never claims a live connection. The visual concept is not a screenshot of a working radio session.
+The Mac launcher uses a black-and-antique-gold statewide New York dashboard inspired by the approved design concept, with a matching original skyline app icon. Panels show actual process status, observed nodes, server logs, radio configuration and local attitude controls. The Grapevine shows live received text, persistent local messages, and explicit one-shot sends through the server-owned radio session. The Bulletin saves General-board posts and replies locally; an explicit send submits the selected post as text to one individual node. The Locals shows packet observations and last-seen times. Demo mode never claims a live connection. The visual concept is not a screenshot of a working radio session.
 
 ## Build verification
 
 The Intel Mac CI packages the app, checks x86_64 architecture and launches the **actual bundled executable** with `--smoke-test` to confirm Tk and the dashboard initialize. This catches packaging-related startup errors, but it does not replace testing a normal Finder launch on macOS Tahoe or a real Meshtastic device.
+
+
+### Desktop messaging safety and verification
+
+- Saving mail or a Bulletin post does not transmit. Bulletin posts and replies are also stored in the local BBS General board; they are not automatically synchronized with other BBS servers. Replies retain a local parent relationship. Explicit Bulletin sends are plain text to the selected node, not remote-board replication.
+- Send requires a running, ready server, an individual `!1234abcd` recipient, and confirmation of the exact text. Broadcast recipients are rejected. Each radio payload is limited to 200 UTF-8 bytes including its subject/prefix; longer local posts must be shortened in a new record before transmission. No silent splitting occurs.
+- The server uses its existing radio interface. Draft → queued → sending is persisted before the radio call. `sent` means submitted to the local radio API, **not RF delivery or acknowledgment**. A radio exception or interrupted send is `unknown`; an unavailable radio before submission is `failed`. Queued records are never replayed on startup or reconnect. Attempted records cannot be resent.
+- Live received text is deduplicated by sender and packet ID when available. Last-seen uses local receipt time. SNR/RSSI are shown only when supplied by the latest received packet; relayed packets do not establish a direct link or current online status.
+- Desktop messages, observations, and send states persist in `~/.empire-state-bbs/desktop-state.db`. Local Bulletin content uses the existing `bulletins.db`. Legacy drafts and the local BBS database remain accessible from Grapevine.
+- Automated tests use mock radio sessions. Hardware RF delivery has **not** been verified. Intel Mac packaging and TCP recovery remain covered by CI. Do not publish beta.3 before the implementation is merged and CI is green.
