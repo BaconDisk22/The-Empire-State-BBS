@@ -1,10 +1,22 @@
 """Tk views for local records, explicit transmissions, and observed packets."""
 import sqlite3
+import math
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 from desktop_session import MAX_PAYLOAD
+
+
+def observation_age(seen, now):
+    """Describe receipt age, never inferred reachability."""
+    if (not isinstance(seen, (int, float)) or isinstance(seen, bool)
+            or not math.isfinite(seen) or seen <= 0 or seen > now):
+        return 'Unknown'
+    seconds = now - seen
+    if seconds < 900:
+        return 'Recent observation'
+    return 'Stale observation'
 
 
 def window(app, title):
@@ -150,12 +162,13 @@ def open_nodes(app):
     win = window(app, 'The Locals')
     tk.Label(win, text='Observed packets • last seen is local receipt time\n'
              'Signal values describe the last received packet, which may be relayed.\n'
+             'Recent means received less than 15 minutes ago; stale means 15 minutes or more.\n'
              'They do not prove a direct link, distance, or current online status. Records persist across sessions.').pack(pady=15)
-    columns = ('id', 'name', 'seen', 'snr', 'rssi')
+    columns = ('id', 'name', 'seen', 'age', 'snr', 'rssi')
     listing = ttk.Treeview(win, columns=columns, show='headings')
-    for key, label in zip(columns, ('Node ID', 'Observed name', 'Last seen', 'Packet SNR (dB)', 'Packet RSSI (dBm)')):
+    for key, label in zip(columns, ('Node ID', 'Observed name', 'Last seen', 'Observation age', 'Packet SNR (dB)', 'Packet RSSI (dBm)')):
         listing.heading(key, text=label)
-        listing.column(key, width=160)
+        listing.column(key, width=140)
     listing.pack(fill='both', expand=True, padx=10, pady=10)
     notice = tk.StringVar()
     tk.Label(win, textvariable=notice).pack()
@@ -168,8 +181,10 @@ def open_nodes(app):
             if children:
                 listing.delete(*children)
             for node in nodes:
+                age = observation_age(node['seen'], time.time())
                 listing.insert('', 'end', values=(node['id'], node['name'] or 'Unknown',
-                    time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(node['seen'])),
+                    time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(node['seen'])) if age != 'Unknown' else 'Unknown',
+                    age,
                     node['snr'] if node['snr'] is not None else 'Unavailable',
                     node['rssi'] if node['rssi'] is not None else 'Unavailable'))
             notice.set(f'{len(nodes)} observed node(s); no discovery transmissions')
