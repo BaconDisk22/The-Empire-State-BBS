@@ -145,6 +145,8 @@ class RadioSession:
                 return
             sender = f'!{number:08x}'
         sender = sender.lower()
+        if sender in ('!00000000', '!ffffffff'):
+            return
         decoded = packet.get('decoded') or {}
         if not isinstance(decoded, dict):
             return
