@@ -91,6 +91,17 @@ class DesktopStore:
                 raise ValueError('Unknown local record')
             return dict(row)
 
+    def reply_fields(self, received_key):
+        """Prepare a local mail editor; never queue or transmit a reply."""
+        with self.connect() as db:
+            row = db.execute('SELECT sender FROM received WHERE key=?', (received_key,)).fetchone()
+        if not row:
+            raise ValueError('Select a received message to reply to')
+        sender = row['sender']
+        if not isinstance(sender, str) or not NODE.fullmatch(sender) or sender.lower() in ('!ffffffff', '!00000000'):
+            raise ValueError('Received message has no valid individual sender')
+        return {'recipient': sender.lower(), 'subject': 'Re: received message'}
+
     def payload(self, record):
         if not NODE.fullmatch(record['recipient'] or '') or record['recipient'] in ('!ffffffff', '!00000000'):
             raise ValueError('An individual recipient node ID is required to transmit')
