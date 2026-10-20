@@ -67,8 +67,8 @@ class DesktopStore:
             raise ValueError('Use an individual node ID such as !1234abcd; broadcast is not allowed')
         post_id = uuid.uuid4().hex
         with self.connect() as db:
-            if parent and not db.execute("SELECT 1 FROM posts WHERE id=? AND kind='bulletin'", (parent,)).fetchone():
-                raise ValueError('Reply parent does not exist')
+            if parent and (kind != 'bulletin' or not db.execute("SELECT 1 FROM posts WHERE id=? AND kind='bulletin'", (parent,)).fetchone()):
+                raise ValueError('Reply parent must be an existing local bulletin')
             db.execute('INSERT INTO posts VALUES (?,?,?,?,?,?,?,?,?,?)',
                        (post_id, kind, recipient, subject, body, parent, 'draft', time.time(), 'Saved locally; not transmitted', None))
             if kind == "bulletin":
