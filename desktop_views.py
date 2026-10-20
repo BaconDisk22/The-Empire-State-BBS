@@ -72,14 +72,22 @@ def open_posts(app, kind):
 
     def compose(reply=False):
         parent = selected() if reply else None
-        if reply and (not parent or parent.get('kind') != 'bulletin'):
+        defaults = {}
+        if reply and kind == 'mail':
+            try:
+                defaults = app.store.reply_fields(parent['key'] if parent else '')
+            except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
+                notice.set(str(exc))
+                return
+            parent = None
+        elif reply and (not parent or parent.get('kind') != 'bulletin'):
             notice.set('Select a local Bulletin post to reply to.')
             return
-        editor = window(app, 'Reply to Bulletin' if reply else 'New local ' + kind)
+        editor = window(app, ('Reply to received message' if kind == 'mail' else 'Reply to Bulletin') if reply else 'New local ' + kind)
         fields = {}
         for key, label in [('recipient', 'Recipient node ID (optional for local saves)'), ('subject', 'Subject')]:
             tk.Label(editor, text=label).pack(anchor='w', padx=15, pady=(12, 0))
-            var = tk.StringVar(value=('Re: ' + parent['subject']) if parent and key == 'subject' else '')
+            var = tk.StringVar(value=('Re: ' + parent['subject']) if parent and key == 'subject' else defaults.get(key, ''))
             tk.Entry(editor, textvariable=var).pack(fill='x', padx=15)
             fields[key] = var
         tk.Label(editor, text=f'Body — radio messages limited to {MAX_PAYLOAD} UTF-8 bytes including subject').pack(pady=10)
@@ -129,6 +137,7 @@ def open_posts(app, kind):
         tk.Button(actions, text='REPLY LOCALLY', command=lambda: compose(True)).pack(side='left', padx=5)
     tk.Button(actions, text='SEND SELECTED ONCE…', command=send).pack(side='left', padx=5)
     if kind == 'mail':
+        tk.Button(actions, text='REPLY TO RECEIVED…', command=lambda: compose(True)).pack(side='left', padx=5)
         tk.Button(actions, text='LEGACY DRAFTS', command=app.list_local_mail_drafts).pack(side='left', padx=5)
     tk.Button(actions, text='BBS DATABASE', command=lambda: app.browse_local_records(
         'Local BBS ' + kind, 'mail' if kind == 'mail' else 'bulletins',
