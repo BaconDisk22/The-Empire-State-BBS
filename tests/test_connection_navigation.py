@@ -68,7 +68,8 @@ class ConnectionNavigationTests(unittest.TestCase):
              patch('sitdown_desktop.CONFIG', Path(temp) / 'launcher.json'), \
              patch('sitdown_desktop.DesktopStore'), \
              patch('sitdown_desktop.messagebox') as dialogs, \
-             patch('sitdown_desktop.ServerSupervisor') as start_session:
+             patch('sitdown_desktop.ServerSupervisor') as start_session, \
+             patch.object(SitdownApp, 'poll'):
             app = SitdownApp(root)
             root.update_idletasks()
 
@@ -78,12 +79,12 @@ class ConnectionNavigationTests(unittest.TestCase):
                     yield from descendants(child)
 
             button = next(w for w in descendants(root)
-                          if isinstance(w, tk.Button) and w.cget('text') == 'THE EMPIRE CONNECTION')
+                          if isinstance(w, tk.Label) and w.cget('text') == 'THE EMPIRE CONNECTION'
+                          and w.bind('<Button-1>'))
             original_widgets = set(descendants(root))
             app.address.set('radio.local')
             app.connection.set('tcp')
-            root.withdraw()
-            button.invoke()
+            button.event_generate('<Button-1>')
             root.update_idletasks()
             # Tk remembers the requested focus even when the OS keeps another app active.
             self.assertEqual(root.focus_lastfor(), app.connection_address)
@@ -91,7 +92,11 @@ class ConnectionNavigationTests(unittest.TestCase):
             self.assertTrue(app.connection_address.winfo_viewable())
             self.assertEqual(app.connection_panel.cget('highlightbackground'), THEME['highlight'])
             self.assertIn('BBS STOPPED', app.radio_health.get())
-            button.invoke()
+            button.event_generate('<Button-1>')
+            root.withdraw()
+            app.show_radio()
+            root.update_idletasks()
+            self.assertEqual(root.state(), 'normal')
             self.assertEqual(set(descendants(root)), original_widgets)
             self.assertEqual(app.address.get(), 'radio.local')
             self.assertFalse(dialogs.mock_calls)
