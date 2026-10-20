@@ -129,6 +129,12 @@ class DesktopSessionTests(unittest.TestCase):
                 self.draft(subject=subject)
         self.assertEqual(self.store.records('posts'), [])
 
+    def test_mail_cannot_claim_bulletin_parent(self):
+        parent = self.draft(kind='bulletin', recipient='')
+        with self.assertRaises(ValueError):
+            self.draft(kind='mail', parent=parent)
+        self.assertEqual(len(self.store.records('posts')), 1)
+
     def test_missing_reply_parent_rejected(self):
         with self.assertRaises(ValueError):
             self.draft(kind='bulletin', parent='missing')
