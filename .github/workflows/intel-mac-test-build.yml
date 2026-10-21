@@ -35,6 +35,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyserial pyinstaller pillow
       - name: Run unit tests
+        env:
+          EMPIRE_GUI_TESTS: '1'
         run: |
           python -m compileall -q sitdown_desktop.py sitdown_monitor.py
           python -m unittest discover -s tests -p 'test_*.py'
