@@ -21,8 +21,8 @@ from desktop_views import open_posts, open_nodes
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 DATA = Path.home() / ".empire-state-bbs"
 CONFIG = DATA / "launcher.json"
-THEME = {"background": "#061018", "panel": "#101D29", "primary": "#B88A35",
-         "connected": "#1CC86A", "text": "#F5EAD4", "highlight": "#F2BE51"}
+THEME = {"background": "#090B10", "panel": "#171A22", "primary": "#342319",
+         "connected": "#44DF79", "text": "#F5F1E9", "highlight": "#FF791F"}
 COMMANDS = [
     ("/empire", "Main menu"), ("/help", "Quick help"),
     ("/mail", "Check your mail"), ("/boards", "The Bulletin Board"),
@@ -56,8 +56,8 @@ class SitdownApp:
         self.waiting_for_usb = False
         self.colors = THEME
         self.root.title("THE EMPIRE STATE BBS | New York State Communications Network")
-        self.root.geometry("1220x830")
-        self.root.minsize(1040, 720)
+        self.root.geometry("1360x870")
+        self.root.minsize(1100, 740)
         self.root.configure(bg=THEME["background"])
         self.load()
         self.build()
@@ -94,14 +94,14 @@ class SitdownApp:
         header.bind("<Configure>", self.draw_skyline_header)
 
         nav = tk.Frame(self.root, bg=bg)
-        nav.pack(fill="x", padx=14, pady=6)
+        nav.pack(fill="x", padx=14, pady=(3, 12))
         for name, action in [
             ("EMPIRE HQ", self.show_home), ("THE GRAPEVINE", self.show_messages),
             ("THE BULLETIN", self.show_bulletin), ("THE LOCALS", self.show_locals),
             ("THE EMPIRE CONNECTION", self.show_radio), ("SETTINGS", self.settings),
             ("ABOUT", self.show_about)
         ]:
-            self.styled_button(nav, name, action, panel).pack(side="left", padx=(0, 5))
+            self.styled_button(nav, name, action, "#9C3D0B" if name == "EMPIRE HQ" else panel).pack(side="left", padx=(0, 7))
         cards = tk.Frame(self.root, bg=bg)
         cards.pack(fill="x", padx=14, pady=6)
         left = tk.Frame(cards, bg=panel, padx=13, pady=12,
@@ -169,51 +169,50 @@ class SitdownApp:
                  bg=bg, fg=gold, font=("Menlo", 10, "bold")).pack(pady=(0, 8))
 
     def draw_skyline_header(self, event=None):
-        """Vector skyline banner, responsive to window size; no external image files."""
+        """New York after dark: vector-only, resize-safe command-center masthead."""
         canvas = self.header_canvas
         canvas.delete("all")
         width = max(canvas.winfo_width(), 1000)
         height = 165
-        bg, gold = self.colors["panel"], self.colors["highlight"]
-        canvas.create_rectangle(0, 0, width, height, fill=bg, outline="")
-        # Midnight skyline silhouette and illuminated windows.
-        buildings = [(0, 104, 65, 155), (69, 79, 120, 155), (126, 100, 174, 155),
-                     (181, 62, 225, 155), (233, 91, 288, 155), (298, 73, 351, 155),
-                     (359, 102, 418, 155), (428, 84, 481, 155)]
-        right_start = width - 490
-        for x1, y1, x2, y2 in buildings:
-            for offset in (0, right_start):
-                x1o, x2o = x1 + offset, x2 + offset
-                canvas.create_rectangle(x1o, y1, x2o, y2, fill="#203A4B", outline="")
-                for wx in range(x1o + 9, x2o - 5, 16):
-                    for wy in range(y1 + 10, y2 - 7, 19):
-                        canvas.create_rectangle(wx, wy, wx + 4, wy + 7,
-                                                fill="#987B45", outline="")
-        # Empire State Building at the right, drawn as scalable vector art.
-        center = width - 185
-        canvas.create_rectangle(center - 32, 49, center + 32, 155,
-                                fill="#B58C48", outline="")
-        canvas.create_polygon(center - 42, 52, center + 42, 52,
-                              center + 26, 35, center - 26, 35, fill=gold)
-        canvas.create_rectangle(center - 12, 17, center + 12, 35, fill=gold, outline="")
-        canvas.create_line(center, 3, center, 17, fill="#FFE7A4", width=4)
-        for wy in range(65, 145, 17):
-            for wx in (center - 19, center, center + 19):
-                canvas.create_rectangle(wx - 3, wy, wx + 3, wy + 9,
-                                        fill="#172330", outline="")
-        canvas.create_rectangle(0, 154, width, 160, fill=gold, outline="")
-        canvas.create_text(25, 24, anchor="nw", text="THE EMPIRE STATE BBS",
-                           fill=gold, font=("Helvetica", 29, "bold"))
-        canvas.create_text(27, 79, anchor="nw",
+        orange = self.colors["highlight"]
+        canvas.create_rectangle(0, 0, width, height, fill="#0D1018", outline="")
+        # A dusk horizon and layered NYC silhouette, without external image assets.
+        for y, shade in [(0, "#14111E"), (42, "#1F1623"), (84, "#2D1A20"),
+                         (122, "#17151B")]:
+            canvas.create_rectangle(0, y, width, y + 42, fill=shade, outline="")
+        for n in range(42):
+            x = (n * 89 + 17) % max(width, 1)
+            top = 72 + (n * 37) % 55
+            bw = 20 + (n * 11) % 23
+            canvas.create_rectangle(x, top, x + bw, 155, fill="#090C13", outline="")
+            for wy in range(top + 9, 148, 16):
+                if (n + wy) % 3:
+                    canvas.create_rectangle(x + 7, wy, x + 10, wy + 5,
+                                            fill="#A85024", outline="")
+        # Empire State Building silhouette and illuminated crown.
+        tower = int(width * 0.73)
+        canvas.create_rectangle(tower - 24, 48, tower + 24, 155,
+                                fill="#0A0C12", outline="")
+        canvas.create_polygon(tower - 30, 50, tower + 30, 50,
+                              tower + 16, 33, tower - 16, 33, fill="#F28B32")
+        canvas.create_rectangle(tower - 8, 15, tower + 8, 34,
+                                fill="#F28B32", outline="")
+        canvas.create_line(tower, 3, tower, 15, fill="#FFD49C", width=3)
+        canvas.create_text(28, 22, anchor="nw", text="THE EMPIRE STATE",
+                           fill="#F7F3ED", font=("Helvetica", 30, "bold"))
+        canvas.create_text(29, 68, anchor="nw", text="B B S   /   COMMAND CENTER",
+                           fill=orange, font=("Helvetica", 23, "bold"))
+        canvas.create_text(30, 117, anchor="nw",
                            text="FROM THE FIVE BOROUGHS TO THE NORTH COUNTRY",
-                           fill="#F5EAD4", font=("Menlo", 12, "bold"))
-        canvas.create_text(27, 108, anchor="nw",
-                           text="NEW YORK STATEWIDE MESH  •  62 COUNTIES  •  ONE NETWORK",
-                           fill=gold, font=("Menlo", 10, "bold"))
+                           fill="#F4D7BF", font=("Menlo", 10, "bold"))
+        canvas.create_text(width - 24, 120, anchor="ne",
+                           text="62 COUNTIES  /  ONE NETWORK",
+                           fill=orange, font=("Menlo", 10, "bold"))
+        canvas.create_rectangle(0, 157, width, 162, fill=orange, outline="")
 
     def panel_heading(self, parent, title):
         tk.Label(parent, text=title, bg=self.colors["panel"],
-                 fg=self.colors["highlight"], font=("Menlo", 12, "bold")).pack(anchor="w")
+                 fg=self.colors["highlight"], font=("Helvetica", 13, "bold")).pack(anchor="w", pady=(0, 8))
 
     def clear_log(self):
         self.output.configure(state="normal")
@@ -519,11 +518,13 @@ class SitdownApp:
         # macOS Aqua ignores custom backgrounds on native Tk buttons,
         # producing white-on-white labels. Use a keyboard-accessible Label.
         background = color or self.colors["primary"]
-        control = tk.Label(parent, text=text, bg=background, fg="#F5EAD4",
-                           padx=9, pady=9, cursor="hand2",
+        control = tk.Label(parent, text=text, bg=background, fg="#F5F1E9",
+                           padx=12, pady=11, cursor="hand2",
                            font=("Helvetica", 10, "bold"), relief="flat",
                            highlightthickness=2, highlightbackground=self.colors["background"],
                            takefocus=True)
+        control.bind("<Enter>", lambda _event: control.configure(bg=self.colors["highlight"], fg="#090B10"))
+        control.bind("<Leave>", lambda _event: control.configure(bg=background, fg="#F5F1E9"))
         control.bind("<Button-1>", lambda _event: command())
         control.bind("<Return>", lambda _event: command())
         control.bind("<space>", lambda _event: command())
