@@ -104,11 +104,11 @@ class SitdownApp:
             self.styled_button(nav, name, action, "#9C3D0B" if name == "EMPIRE HQ" else panel).pack(side="left", padx=(0, 7))
         cards = tk.Frame(self.root, bg=bg)
         cards.pack(fill="x", padx=14, pady=6)
-        left = tk.Frame(cards, bg=panel, padx=13, pady=12,
+        left = tk.Frame(cards, bg=panel, padx=19, pady=18,
                         highlightthickness=2, highlightbackground=panel)
         self.connection_panel = left
         left.pack(side="left", fill="both", expand=True, padx=(0, 5))
-        self.panel_heading(left, "THE EMPIRE CONNECTION")
+        self.panel_heading(left, "01  /  THE EMPIRE CONNECTION")
         tk.Label(left, textvariable=self.status, bg=panel, fg=c["connected"],
                  font=("Menlo", 12, "bold")).pack(anchor="w", pady=6)
         tk.Label(left, textvariable=self.radio_health, bg=panel, fg=gold,
@@ -123,23 +123,23 @@ class SitdownApp:
             left, textvariable=self.address, bg=bg, fg=cream,
             insertbackground=cream, relief="flat")
         self.connection_address.pack(fill="x", ipady=6, pady=4)
-        self.styled_button(left, "FIND USB PORTS", self.list_ports, bg).pack(fill="x", pady=5)
-        self.styled_button(left, "CHECK RADIO TARGET", self.check_radio_target, bg).pack(fill="x", pady=5)
-        center = tk.Frame(cards, bg=panel, padx=13, pady=12)
+        self.styled_button(left, "⌕  FIND USB PORTS", self.list_ports, bg).pack(fill="x", pady=5)
+        self.styled_button(left, "◎  CHECK RADIO TARGET", self.check_radio_target, bg).pack(fill="x", pady=5)
+        center = tk.Frame(cards, bg=panel, padx=19, pady=18)
         center.pack(side="left", fill="both", expand=True, padx=5)
-        self.panel_heading(center, "BBS SERVER")
+        self.panel_heading(center, "02  /  BBS SERVER")
         tk.Label(center, text="Actual server status is shown at left.",
                  bg=panel, fg=cream).pack(anchor="w", pady=7)
         tk.Checkbutton(center, text="DEMO MODE (NO RADIO)", variable=self.demo,
                        bg=panel, fg=gold, selectcolor=bg).pack(anchor="w")
         tk.Checkbutton(center, text="Auto recovery (crash / radio loss)", variable=self.auto_restart,
                        bg=panel, fg=cream, selectcolor=bg).pack(anchor="w")
-        self.styled_button(center, "START BBS SERVER", self.start, "#166F43").pack(fill="x", pady=(14, 5))
-        self.styled_button(center, "STOP SERVER", self.stop, "#9A302A").pack(fill="x", pady=5)
+        self.styled_button(center, "▶  START BBS SERVER", self.start, "#166F43").pack(fill="x", pady=(14, 5))
+        self.styled_button(center, "■  STOP SERVER", self.stop, "#9A302A").pack(fill="x", pady=5)
         self.styled_button(center, "THE ARCHIVES", self.backup, bg).pack(fill="x", pady=5)
-        right = tk.Frame(cards, bg=panel, padx=13, pady=12)
+        right = tk.Frame(cards, bg=panel, padx=19, pady=18)
         right.pack(side="left", fill="both", expand=True, padx=(5, 0))
-        self.panel_heading(right, "EMPIRE STATE ATTITUDE")
+        self.panel_heading(right, "03  /  EMPIRE STATE ATTITUDE")
         tk.Label(right, text="Turn up the New York. Clean by default.",
                  bg=panel, fg=cream).pack(anchor="w", pady=7)
         for value, name in [("clean", "CLEAN"), ("spicy", "SPICY"), ("unfiltered", "UNCENSORED")]:
@@ -152,14 +152,14 @@ class SitdownApp:
                                 fg=cream, font=("Menlo", 10), wraplength=290,
                                 justify="left", padx=8, pady=8)
         self.preview.pack(fill="x", pady=5)
-        logpanel = tk.Frame(self.root, bg=panel, padx=13, pady=11)
+        logpanel = tk.Frame(self.root, bg=panel, padx=18, pady=14)
         logpanel.pack(fill="both", expand=True, padx=14, pady=(5, 10))
         loghead = tk.Frame(logpanel, bg=panel)
         loghead.pack(fill="x")
         tk.Label(loghead, text="UNDER THE HOOD  /  SERVER LOG", bg=panel,
-                 fg=gold, font=("Menlo", 12, "bold")).pack(side="left")
+                 fg=gold, font=("Helvetica", 13, "bold")).pack(side="left")
         self.styled_button(loghead, "CLEAR LOG", self.clear_log, bg).pack(side="right")
-        self.output = tk.Text(logpanel, bg="#030A10", fg="#8BE0A0",
+        self.output = tk.Text(logpanel, bg="#080C12", fg="#8CE9A3",
                               insertbackground=cream, wrap="word", relief="flat",
                               state="disabled", height=14, font=("Menlo", 11), padx=10, pady=8)
         self.output.pack(fill="both", expand=True, pady=(7, 0))
