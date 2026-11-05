@@ -251,16 +251,24 @@ def open_nodes(app):
             return
         try:
             nodes = app.store.records('nodes')
-            children = listing.get_children()
-            if children:
-                listing.delete(*children)
+            # Update rows in place to preserve selection and scroll position.
+            current = set(listing.get_children())
+            observed = set()
             for node in nodes:
+                node_id = str(node['id'])
+                observed.add(node_id)
                 age = observation_age(node['seen'], time.time())
-                listing.insert('', 'end', values=(node['id'], node['name'] or 'Unknown',
+                values = (node['id'], node['name'] or 'Unknown',
                     time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(node['seen'])) if age != 'Unknown' else 'Unknown',
                     age,
                     node['snr'] if node['snr'] is not None else 'Unavailable',
-                    node['rssi'] if node['rssi'] is not None else 'Unavailable'))
+                    node['rssi'] if node['rssi'] is not None else 'Unavailable')
+                if node_id in current:
+                    listing.item(node_id, values=values)
+                else:
+                    listing.insert('', 'end', iid=node_id, values=values)
+            for missing in current - observed:
+                listing.delete(missing)
             notice.set(f'{len(nodes)} observed node(s); no discovery transmissions')
         except (OSError, sqlite3.Error) as exc:
             notice.set('Unable to read observed nodes: ' + str(exc))
