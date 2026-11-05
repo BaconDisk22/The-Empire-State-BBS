@@ -61,6 +61,13 @@ class SitdownApp:
         self.root.configure(bg=THEME["background"])
         self.load()
         self.build()
+        # Command shortcuts do not transmit or start/stop the server.
+        for sequence, action in [
+            ("<Command-1>", self.show_home), ("<Command-2>", self.show_messages),
+            ("<Command-3>", self.show_bulletin), ("<Command-4>", self.show_locals),
+            ("<Command-5>", self.show_radio), ("<Command-comma>", self.settings),
+        ]:
+            self.root.bind(sequence, lambda _event, callback=action: callback())
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.after(1000, self.poll)
 
@@ -168,6 +175,7 @@ class SitdownApp:
         self.output.pack(fill="both", expand=True, pady=(7, 0))
         self.log(self.attitude_message())
         self.log("EMPIRE HQ • Demo is clearly labeled. No simulated connections.")
+        self.log("Navigation: ⌘1 HQ • ⌘2 Grapevine • ⌘3 Bulletin • ⌘4 Locals • ⌘5 Connection • ⌘, Settings")
         tk.Label(self.root, text="NEW YORK  •  62 COUNTIES  •  ONE NETWORK",
                  bg=bg, fg=gold, font=("Menlo", 10, "bold")).pack(pady=(0, 8))
 
