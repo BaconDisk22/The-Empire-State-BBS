@@ -33,11 +33,22 @@ def window(app, title):
     win.geometry('1060x720')
     win.minsize(850, 600)
     win.configure(bg=INK)
+    # Keep only one live window per section. Reopening brings it to the front.
     return win
 
 
 def open_posts(app, kind):
+    key = 'grapevine' if kind == 'mail' else 'bulletin'
+    existing = getattr(app, '_empire_views', {}).get(key)
+    if existing is not None and existing.winfo_exists():
+        existing.deiconify()
+        existing.lift()
+        existing.focus_force()
+        return
     win = window(app, 'The Grapevine' if kind == 'mail' else 'The Bulletin')
+    if not hasattr(app, '_empire_views'):
+        app._empire_views = {}
+    app._empire_views[key] = win
     tk.Label(win, text='THE GRAPEVINE  /  INBOX + DRAFTS' if kind == 'mail' else 'THE BULLETIN  /  LOCAL BOARD',
              bg=INK, fg=ORANGE, font=('Helvetica', 22, 'bold')).pack(anchor='w', padx=20, pady=(22, 5))
     tk.Label(win, text='LIVE RECEIVED TEXT + LOCAL MAIL' if kind == 'mail' else 'GENERAL BOARD • LOCAL POSTS + REPLIES',
@@ -206,7 +217,16 @@ def open_posts(app, kind):
 
 
 def open_nodes(app):
+    existing = getattr(app, '_empire_views', {}).get('locals')
+    if existing is not None and existing.winfo_exists():
+        existing.deiconify()
+        existing.lift()
+        existing.focus_force()
+        return
     win = window(app, 'The Locals')
+    if not hasattr(app, '_empire_views'):
+        app._empire_views = {}
+    app._empire_views['locals'] = win
     tk.Label(win, text='THE LOCALS  /  OBSERVED NODES', bg=INK, fg=ORANGE,
              font=('Helvetica', 22, 'bold')).pack(anchor='w', padx=20, pady=(22, 5))
     tk.Label(win, text='Observed packets • last seen is local receipt time\n'
