@@ -11,7 +11,8 @@ permissions:
 
 concurrency:
   group: empire-intel-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve queued Intel packaging runs during rapid merges; avoid discarding validation.
+  cancel-in-progress: false
 
 jobs:
   macos-intel:
