@@ -109,8 +109,11 @@ class SitdownApp:
         self.connection_panel = left
         left.pack(side="left", fill="both", expand=True, padx=(0, 5))
         self.panel_heading(left, "01  /  THE EMPIRE CONNECTION")
-        tk.Label(left, textvariable=self.status, bg=panel, fg=c["connected"],
-                 font=("Menlo", 12, "bold")).pack(anchor="w", pady=6)
+        self.status_label = tk.Label(left, textvariable=self.status, bg=panel,
+                                     fg=c["highlight"], font=("Menlo", 12, "bold"))
+        self.status_label.pack(anchor="w", pady=6)
+        self.status.trace_add("write", self.update_status_color)
+        self.update_status_color()
         tk.Label(left, textvariable=self.radio_health, bg=panel, fg=gold,
                  wraplength=300, justify="left").pack(anchor="w")
         tk.Label(left, textvariable=self.node_count, bg=panel, fg=cream).pack(anchor="w")
@@ -167,6 +170,20 @@ class SitdownApp:
         self.log("EMPIRE HQ • Demo is clearly labeled. No simulated connections.")
         tk.Label(self.root, text="NEW YORK  •  62 COUNTIES  •  ONE NETWORK",
                  bg=bg, fg=gold, font=("Menlo", 10, "bold")).pack(pady=(0, 8))
+
+    def update_status_color(self, *_args):
+        """Green only when running, not for stopped or unverified states."""
+        state = self.status.get().lower()
+        if state.startswith("demo"):
+            color = self.colors["highlight"]
+        elif state.startswith("running") or state.startswith("ready") or state.startswith("connected"):
+            color = self.colors["connected"]
+        elif state.startswith("starting") or "recovery" in state:
+            color = self.colors["highlight"]
+        else:
+            color = "#F28B82"
+        if hasattr(self, "status_label") and self.status_label.winfo_exists():
+            self.status_label.configure(fg=color)
 
     def draw_skyline_header(self, event=None):
         """New York after dark: vector-only, resize-safe command-center masthead."""
