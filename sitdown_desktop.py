@@ -781,7 +781,14 @@ class SitdownApp:
 
     def settings(self):
         """Local-only preferences in a readable NYC command-center window."""
+        existing = getattr(self, "_settings_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.deiconify()
+            existing.lift()
+            existing.focus_force()
+            return
         win = tk.Toplevel(self.root)
+        self._settings_window = win
         win.title("Control Room | Empire State BBS")
         win.geometry("680x540")
         win.minsize(560, 480)
