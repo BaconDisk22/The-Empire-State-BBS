@@ -755,25 +755,43 @@ class SitdownApp:
         self.styled_button(win, "Copy selected command", copy, THEME["primary"]).pack(pady=15)
 
     def settings(self):
+        """Local-only preferences in a readable NYC command-center window."""
         win = tk.Toplevel(self.root)
-        win.title("Control Room")
+        win.title("Control Room | Empire State BBS")
+        win.geometry("680x540")
+        win.minsize(560, 480)
         win.configure(bg=THEME["background"])
-        for name, var in [("Community name", self.community), ("Welcome message (local setting)", self.welcome)]:
-            tk.Label(win, text=name, bg=THEME["background"], fg=THEME["text"]).pack(anchor="w", padx=20, pady=(12, 0))
-            tk.Entry(win, textvariable=var, width=55, bg=THEME["panel"], fg=THEME["text"],
-                     insertbackground=THEME["text"]).pack(padx=20)
-        tk.Label(win, text="EMPIRE STATE ATTITUDE — applies only to local interface and demo text",
-                 bg=THEME["background"], fg=THEME["highlight"]).pack(padx=20, pady=(12, 4))
-        for value, title in [("clean", "Clean — Classic New York (default)"),
-                             ("spicy", "Spicy — A Little Mouthy"),
-                             ("unfiltered", "Unfiltered — Full New York Attitude")]:
+        tk.Label(win, text="CONTROL ROOM  /  SETTINGS",
+                 bg=THEME["background"], fg=THEME["highlight"],
+                 font=("Helvetica", 23, "bold")).pack(anchor="w", padx=24, pady=(24, 4))
+        tk.Label(win, text="LOCAL PREFERENCES  •  CHANGES DO NOT TRANSMIT",
+                 bg=THEME["background"], fg=THEME["text"],
+                 font=("Menlo", 10)).pack(anchor="w", padx=24, pady=(0, 20))
+        for name, var in [("COMMUNITY NAME", self.community),
+                          ("WELCOME MESSAGE  /  LOCAL SETTING", self.welcome)]:
+            tk.Label(win, text=name, bg=THEME["background"],
+                     fg=THEME["highlight"], font=("Helvetica", 11, "bold")).pack(
+                         anchor="w", padx=24, pady=(12, 5))
+            tk.Entry(win, textvariable=var, width=55, bg=THEME["panel"],
+                     fg=THEME["text"], insertbackground=THEME["text"],
+                     relief="flat", font=("Helvetica", 12)).pack(
+                         fill="x", padx=24, ipady=10)
+        tk.Label(win, text="EMPIRE STATE ATTITUDE",
+                 bg=THEME["background"], fg=THEME["highlight"],
+                 font=("Helvetica", 12, "bold")).pack(anchor="w", padx=24, pady=(22, 8))
+        for value, title in [("clean", "CLEAN  /  Classic New York (default)"),
+                             ("spicy", "SPICY  /  A Little Mouthy"),
+                             ("unfiltered", "UNCENSORED  /  Full New York Attitude")]:
             tk.Radiobutton(win, text=title, variable=self.attitude, value=value,
                            command=lambda v=value: self.set_attitude(v),
                            bg=THEME["background"], fg=THEME["text"],
-                           selectcolor=THEME["panel"], anchor="w").pack(anchor="w", padx=20)
-        tk.Label(win, text="Custom welcome is saved locally; radio reply integration is pending.",
-                 bg=THEME["background"], fg=THEME["highlight"]).pack(padx=20, pady=10)
-        self.styled_button(win, "Save", self.save, THEME["connected"]).pack(pady=12)
+                           selectcolor=THEME["panel"], anchor="w",
+                           font=("Helvetica", 11)).pack(anchor="w", padx=24, pady=3)
+        tk.Label(win, text="Local preview only. Radio reply integration is pending.",
+                 bg=THEME["background"], fg=THEME["text"],
+                 font=("Helvetica", 10)).pack(anchor="w", padx=24, pady=(12, 6))
+        self.styled_button(win, "SAVE LOCAL SETTINGS", self.save,
+                           THEME["primary"]).pack(anchor="w", padx=24, pady=12)
 
     def backup(self):
         DATA.mkdir(parents=True, exist_ok=True)
