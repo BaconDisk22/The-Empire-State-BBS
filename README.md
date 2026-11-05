@@ -6,21 +6,31 @@
 
 A statewide, old-school New York-themed edition of the Meshtastic bulletin board project, inspired by [THE SITDOWN BBS](https://github.com/BaconDisk22/The-Sitdown-BBS).
 
-> **Project status:** A working Meshtastic BBS codebase and Intel Mac beta build workflows are present. The gold desktop dashboard and original skyline icon are implemented. Real-radio functionality and launch behavior on individual Macs still require device testing. [Releases](https://github.com/BaconDisk22/The-Empire-State-BBS/releases).
+> **Project status:** Intel Mac beta.6 is available, and the NYC command-center redesign is merged into the main branch. Automated tests, Intel packaging and a bundled-app smoke test are available; real-radio delivery and normal Finder launch still require hardware verification. [Releases](https://github.com/BaconDisk22/The-Empire-State-BBS/releases).
 
 ## Statewide identity
 
 This project represents **all of New York State**, not just New York City: Western New York, the Finger Lakes, Central New York, the Southern Tier, the Capital Region, the North Country, the Mohawk Valley, the Hudson Valley, Long Island, and New York City.
 
-### Visual direction
+## Screenshots — NYC command center
 
-| Color | Hex |
+![The Empire State BBS desktop dashboard in radio-free demo mode](docs/images/desktop-preview-demo.png)
+
+*Automatically captured desktop preview in **demo mode**. It is not evidence of an active radio connection or over-the-air delivery. Screenshots may reflect the latest successful screenshot workflow rather than a published release.*
+
+[View the full-size dashboard screenshot](docs/images/desktop-preview-demo.png)
+
+The app uses a charcoal and orange NYC command-center theme with a skyline header, legible dashboard controls and matching Grapevine, Bulletin, Locals and Settings windows. Navigation shortcuts on Intel Mac: **⌘1** HQ, **⌘2** Grapevine, **⌘3** Bulletin, **⌘4** Locals, **⌘5** Connection, and **⌘,** Settings.
+
+### Visual palette
+
+| Element | Color |
 | --- | --- |
-| Empire navy | `#172C46` |
-| Antique gold | `#C5A46D` |
-| Vintage cream | `#F2E8D5` |
-| Brick red | `#9C302C` |
-| Adirondack green | `#36513D` |
+| Background | `#090B10` |
+| Panels | `#171A22` |
+| NYC orange accent | `#FF791F` |
+| Primary text | `#F5F1E9` |
+| Active connection indicator | `#44DF79` |
 
 ## Implementation and next steps
 
@@ -49,9 +59,9 @@ These steps address macOS security prompts for an unsigned app. If the icon boun
 
 **The Sitdown BBS remains an independent New Jersey project.**
 
-## Empire State gold dashboard
+## NYC command-center dashboard
 
-The Mac launcher uses a black-and-antique-gold statewide New York dashboard inspired by the approved design concept, with a matching original skyline app icon. Panels show actual process status, observed nodes, server logs, radio configuration and local attitude controls. The Grapevine shows live received text, persistent local messages, and explicit one-shot sends through the server-owned radio session. The Bulletin saves General-board posts and replies locally; an explicit send submits the selected post as text to one individual node. The Locals shows packet observations and last-seen times. Demo mode never claims a live connection. The visual concept is not a screenshot of a working radio session.
+The Mac launcher uses a dark charcoal and NYC-orange statewide New York command-center dashboard with an original skyline app icon. Panels show actual process status, observed nodes, server logs, radio configuration and local attitude controls. The Grapevine shows live received text, persistent local messages, and explicit one-shot sends through the server-owned radio session. The Bulletin saves General-board posts and replies locally; an explicit send submits the selected post as text to one individual node. The Locals shows packet observations and last-seen times. Demo mode never claims a live connection. The visual concept is not a screenshot of a working radio session.
 
 ## Build verification
 
@@ -67,4 +77,4 @@ The Intel Mac CI packages the app, checks x86_64 architecture and launches the *
 - Explicit retry of a failed attempt creates one durable replacement draft and preserves the original record. It requires confirmation and a separate explicit send. A retry may duplicate a message received despite a routing error. Unknown delivery cannot be retried through this action. Meshtastic firmware may perform its own reliable-send retries when acknowledgment is requested; the desktop does not replay sends on reconnect.
 - Live received text is deduplicated by sender and packet ID when available. Last-seen uses local receipt time. SNR/RSSI are shown only when supplied by the latest received packet; relayed packets do not establish a direct link or current online status.
 - Desktop messages, observations, and send states persist in `~/.empire-state-bbs/desktop-state.db`. Local Bulletin content uses the existing `bulletins.db`. Legacy drafts and the local BBS database remain accessible from Grapevine.
-- Automated tests use mock radio sessions. Hardware RF delivery has **not** been verified. Intel Mac packaging and TCP recovery remain covered by CI. Do not publish beta.3 before the implementation is merged and CI is green.
+- Automated tests use mock radio sessions. Hardware RF delivery has **not** been verified. Intel Mac packaging and TCP recovery remain covered by CI. Do not treat a successful CI build as proof of over-the-air delivery.
