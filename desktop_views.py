@@ -65,8 +65,13 @@ def open_posts(app, kind):
               foreground=[('selected', PAPER)])
     listing = ttk.Treeview(win, columns=('state', 'recipient', 'subject'),
                            show='headings', height=12, style='Empire.Treeview')
-    for col, label in [('state', 'State / source'), ('recipient', 'To / from node'), ('subject', 'Subject / text')]:
+    for col, label, width, stretch in [
+        ('state', 'State / source', 145, False),
+        ('recipient', 'To / from node', 200, False),
+        ('subject', 'Subject / text', 570, True),
+    ]:
         listing.heading(col, text=label)
+        listing.column(col, width=width, minwidth=90, stretch=stretch)
     listing.pack(fill='both', expand=True, padx=12, pady=10)
     detail = tk.Text(win, height=7, wrap='word', state='disabled',
                      bg=PANEL, fg=PAPER, insertbackground=ORANGE, relief='flat',
