@@ -7,6 +7,14 @@ from tkinter import messagebox, ttk
 
 from desktop_session import MAX_PAYLOAD
 
+# Match the NYC command-center shell while keeping the message safety flow intact.
+INK = "#090B10"
+PANEL = "#171A22"
+ORANGE = "#FF791F"
+PAPER = "#F5F1E9"
+GREEN = "#44DF79"
+
+
 
 def observation_age(seen, now):
     """Describe receipt age, never inferred reachability."""
@@ -22,25 +30,40 @@ def observation_age(seen, now):
 def window(app, title):
     win = tk.Toplevel(app.root)
     win.title(title + ' | The Empire State BBS')
-    win.geometry('920x650')
+    win.geometry('1060x720')
+    win.minsize(850, 600)
+    win.configure(bg=INK)
     return win
 
 
 def open_posts(app, kind):
     win = window(app, 'The Grapevine' if kind == 'mail' else 'The Bulletin')
-    tk.Label(win, text=('Live received text and local mail' if kind == 'mail' else 'General board • local Bulletin posts and replies'),
-             font=('Helvetica', 18, 'bold')).pack(pady=10)
+    tk.Label(win, text='THE GRAPEVINE  /  INBOX + DRAFTS' if kind == 'mail' else 'THE BULLETIN  /  LOCAL BOARD',
+             bg=INK, fg=ORANGE, font=('Helvetica', 22, 'bold')).pack(anchor='w', padx=20, pady=(22, 5))
+    tk.Label(win, text='LIVE RECEIVED TEXT + LOCAL MAIL' if kind == 'mail' else 'GENERAL BOARD • LOCAL POSTS + REPLIES',
+             bg=INK, fg=PAPER, font=('Menlo', 10, 'bold')).pack(anchor='w', padx=20, pady=(0, 12))
     tk.Label(win, text='Save stays on this computer. Send explicitly submits one text to one node.\n'
              'Sent = local radio API returned; RF delivery is unverified. No automatic retry or BBS sync.',
-             wraplength=860).pack()
-    listing = ttk.Treeview(win, columns=('state', 'recipient', 'subject'), show='headings', height=12)
+             wraplength=960, bg=INK, fg=PAPER, justify='left').pack(anchor='w', padx=20)
+    style = ttk.Style(win)
+    style.configure('Empire.Treeview', background=PANEL, foreground=PAPER,
+                    fieldbackground=PANEL, rowheight=32, font=('Helvetica', 11))
+    style.configure('Empire.Treeview.Heading', background=INK, foreground=ORANGE,
+                    font=('Helvetica', 11, 'bold'))
+    style.map('Empire.Treeview', background=[('selected', '#854012')],
+              foreground=[('selected', PAPER)])
+    listing = ttk.Treeview(win, columns=('state', 'recipient', 'subject'),
+                           show='headings', height=12, style='Empire.Treeview')
     for col, label in [('state', 'State / source'), ('recipient', 'To / from node'), ('subject', 'Subject / text')]:
         listing.heading(col, text=label)
     listing.pack(fill='both', expand=True, padx=12, pady=10)
-    detail = tk.Text(win, height=7, wrap='word', state='disabled')
+    detail = tk.Text(win, height=7, wrap='word', state='disabled',
+                     bg=PANEL, fg=PAPER, insertbackground=ORANGE, relief='flat',
+                     padx=12, pady=10, font=('Menlo', 11))
     detail.pack(fill='x', padx=12)
     notice = tk.StringVar()
-    tk.Label(win, textvariable=notice, wraplength=850).pack()
+    tk.Label(win, textvariable=notice, wraplength=960, bg=INK,
+             fg=GREEN, justify='left').pack(anchor='w', padx=20, pady=6)
     entries = {}
 
     def selected():
@@ -142,7 +165,7 @@ def open_posts(app, kind):
         except (ValueError, OSError, sqlite3.Error) as exc:
             notice.set(str(exc))
 
-    actions = tk.Frame(win)
+    actions = tk.Frame(win, bg=INK)
     actions.pack(pady=10)
     tk.Button(actions, text='NEW LOCAL POST' if kind == 'bulletin' else 'NEW LOCAL MESSAGE', command=compose).pack(side='left', padx=5)
     if kind == 'bulletin':
@@ -171,6 +194,10 @@ def open_posts(app, kind):
         ('id', 'sender_short_name', 'subject', 'content'))).pack(side='left', padx=5)
     buttons = actions.winfo_children()
     for button in buttons:
+        button.configure(bg=PANEL, fg=PAPER, activebackground=ORANGE,
+                         activeforeground=INK, relief='flat', padx=12, pady=9,
+                         font=('Helvetica', 10, 'bold'), cursor='hand2')
+    for button in buttons:
         button.pack_forget()
     for index, button in enumerate(buttons):
         button.grid(row=index // 3, column=index % 3, padx=5, pady=3)
@@ -180,18 +207,25 @@ def open_posts(app, kind):
 
 def open_nodes(app):
     win = window(app, 'The Locals')
+    tk.Label(win, text='THE LOCALS  /  OBSERVED NODES', bg=INK, fg=ORANGE,
+             font=('Helvetica', 22, 'bold')).pack(anchor='w', padx=20, pady=(22, 5))
     tk.Label(win, text='Observed packets • last seen is local receipt time\n'
              'Signal values describe the last received packet, which may be relayed.\n'
              'Recent means received less than 15 minutes ago; stale means 15 minutes or more.\n'
-             'They do not prove a direct link, distance, or current online status. Records persist across sessions.').pack(pady=15)
+             'They do not prove a direct link, distance, or current online status. Records persist across sessions.',
+             bg=INK, fg=PAPER, justify='left').pack(anchor='w', padx=20, pady=12)
     columns = ('id', 'name', 'seen', 'age', 'snr', 'rssi')
-    listing = ttk.Treeview(win, columns=columns, show='headings')
+    style = ttk.Style(win)
+    style.configure('Empire.Treeview', background=PANEL, foreground=PAPER,
+                    fieldbackground=PANEL, rowheight=32)
+    style.configure('Empire.Treeview.Heading', background=INK, foreground=ORANGE)
+    listing = ttk.Treeview(win, columns=columns, show='headings', style='Empire.Treeview')
     for key, label in zip(columns, ('Node ID', 'Observed name', 'Last seen', 'Observation age', 'Packet SNR (dB)', 'Packet RSSI (dBm)')):
         listing.heading(key, text=label)
         listing.column(key, width=140)
     listing.pack(fill='both', expand=True, padx=10, pady=10)
     notice = tk.StringVar()
-    tk.Label(win, textvariable=notice).pack()
+    tk.Label(win, textvariable=notice, bg=INK, fg=GREEN).pack(anchor='w', padx=20, pady=8)
     def refresh():
         if not win.winfo_exists():
             return
