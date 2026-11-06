@@ -86,6 +86,9 @@ jobs:
           hdiutil attach "The-Empire-State-BBS-Intel-Test.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/empire-dmg-check"
           trap 'hdiutil detach "$RUNNER_TEMP/empire-dmg-check" -quiet || true' EXIT
           test -d "$RUNNER_TEMP/empire-dmg-check/The Empire State BBS.app"
+          test -x "$RUNNER_TEMP/empire-dmg-check/The Empire State BBS.app/Contents/MacOS/The Empire State BBS"
+          test -f "$RUNNER_TEMP/empire-dmg-check/The Empire State BBS.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$RUNNER_TEMP/empire-dmg-check/The Empire State BBS.app/Contents/Info.plist" | grep -Fx 'The Empire State BBS'
           test -L "$RUNNER_TEMP/empire-dmg-check/Applications"
           shasum -a 256 -c SHA256SUMS.txt
       - name: Upload downloadable test build
