@@ -16,6 +16,9 @@ class RadioHealthTests(unittest.TestCase):
     def test_stopped_overrides_stale_usb_state(self):
         self.assertIn("BBS STOPPED", radio_health_label(False, False, False, usb_present=False))
 
+    def test_waiting_for_usb_shows_missing_while_stopped(self):
+        self.assertIn("USB MISSING", radio_health_label(False, False, False, waiting=True))
+
     def test_stopped(self):
         self.assertIn("STOPPED", radio_health_label(False, False, False))
     def test_starting(self):
