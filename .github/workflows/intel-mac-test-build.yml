@@ -78,6 +78,16 @@ jobs:
           hdiutil create -volname "The Empire State BBS TEST" \
             -srcfolder dmg-staging -ov -format UDZO "The-Empire-State-BBS-Intel-Test.dmg"
           shasum -a 256 "The-Empire-State-BBS-Intel-Test.dmg" > SHA256SUMS.txt
+      - name: Verify test DMG can mount and contains the app
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/empire-dmg-check"
+          hdiutil attach "The-Empire-State-BBS-Intel-Test.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/empire-dmg-check"
+          trap 'hdiutil detach "$RUNNER_TEMP/empire-dmg-check" -quiet || true' EXIT
+          test -d "$RUNNER_TEMP/empire-dmg-check/The Empire State BBS.app"
+          test -L "$RUNNER_TEMP/empire-dmg-check/Applications"
+          shasum -a 256 -c SHA256SUMS.txt
       - name: Upload downloadable test build
         uses: actions/upload-artifact@v4
         with:
