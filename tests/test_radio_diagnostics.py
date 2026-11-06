@@ -31,6 +31,23 @@ class RadioDiagnosticsTests(unittest.TestCase):
             self.assertIn("TCP timeout", check_tcp_target("radio.local", timeout=timeout, connector=dial))
         dial.assert_not_called()
 
+    def test_nonfinite_timeout_does_not_dial(self):
+        dial = Mock()
+        for timeout in (float("nan"), float("inf"), float("-inf")):
+            self.assertIn("TCP timeout", check_tcp_target("radio.local", timeout=timeout, connector=dial))
+        dial.assert_not_called()
+
+    def test_malformed_host_does_not_dial(self):
+        dial = Mock()
+        for host in (None, 123, " ", "radio host", "radio\\x00.local"):
+            self.assertIn("TCP host", check_tcp_target(host, connector=dial))
+        dial.assert_not_called()
+
+    def test_host_whitespace_is_trimmed(self):
+        dial = Mock(return_value=Mock())
+        self.assertIn("accepted a connection", check_tcp_target(" radio.local ", connector=dial))
+        dial.assert_called_once_with(("radio.local", 4403), timeout=2.0)
+
     def test_tcp_unreachable(self):
         def fail(*args, **kwargs):
             raise OSError("refused")
