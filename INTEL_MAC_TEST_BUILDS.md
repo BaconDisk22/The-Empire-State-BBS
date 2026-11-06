@@ -1,15 +1,29 @@
 # Intel Mac test builds
 
-Every push to `main`, pull request, or manual workflow dispatch runs **Intel Mac test build** on GitHub's `macos-15-intel` runner.
+Every push to `main`, pull request, or manual workflow dispatch runs **Intel Mac test build** on a GitHub `macos-15-intel` runner.
 
-1. Open **Actions** → **Intel Mac test build**.
-2. Select a **successful** run.
-3. Under **Artifacts**, download **The-Sitdown-BBS-Intel-Mac-Test**.
-4. Unzip the artifact and open `The-Sitdown-BBS-Intel-Test.dmg`.
-5. Drag the app to Applications.
+## Download the latest test build
 
-The DMG is an **unsigned, unnotarized development test build**, not a stable release. macOS Gatekeeper may block it; only approve a build you trust through System Settings → Privacy & Security. Do not disable Gatekeeper globally.
+1. Open [Intel Mac test build Actions](https://github.com/BaconDisk22/The-Empire-State-BBS/actions/workflows/intel-mac-test-build.yml).
+2. Choose a **successful** run on `main` (or the branch you intend to test).
+3. Under **Artifacts**, download **The-Empire-State-BBS-Intel-Mac-Test**.
+4. Unzip the artifact, then open `The-Empire-State-BBS-Intel-Test.dmg`.
+5. Drag **The Empire State BBS.app** into Applications.
+6. In Finder, Control-click the app and choose **Open** if macOS prompts. If needed, use **System Settings → Privacy & Security → Open Anyway** for this app only.
 
-The bundled app creates a user-editable radio configuration at `~/.sitdown-bbs/config.ini` on first non-demo launch. Review it before connecting a radio. Demo mode does not require a radio. Radio connectivity and macOS Tahoe compatibility must still be tested on physical hardware.
+The test DMG is **unsigned and unnotarized**. Do not disable Gatekeeper globally.
 
-Build artifacts expire after **14 days**. This workflow does not publish GitHub Releases and does not require an Apple Developer signing certificate.
+## What automated checks establish
+
+The Intel workflow runs unit tests, builds an x86_64 app, launches its bundled executable in smoke-test mode, mounts the generated DMG, checks the Applications shortcut, and verifies its SHA-256 checksum. This does **not** verify normal Finder launch on your Mac, live Meshtastic TCP operation, or RF delivery.
+
+## Manual checks before a public beta
+
+- Launch and quit normally in Finder, without force quit.
+- Open the NYC dashboard, Grapevine, Bulletin, Locals, Connection, and Settings. Check font readability and window layout.
+- Try radio-free demo mode; it must not claim a real connection.
+- Configure your own TCP host locally; never commit private radio IP addresses.
+- Test TCP disconnect/reconnect and confirm messages are not automatically resent.
+- If you have only one radio, mark two-node RF delivery as **not tested**.
+
+Artifacts expire after **14 days**. This workflow does not publish a GitHub Release or require an Apple Developer certificate.
