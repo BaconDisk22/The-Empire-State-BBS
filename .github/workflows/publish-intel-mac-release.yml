@@ -103,6 +103,19 @@ jobs:
             The-Empire-State-BBS-Intel-Mac-*.dmg
             SHA256SUMS.txt
           retention-days: 30
+      - name: Verify release DMG and checksums
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          dmg="The-Empire-State-BBS-Intel-Mac-$VERSION.dmg"
+          shasum -a 256 -c SHA256SUMS.txt
+          mkdir -p "$RUNNER_TEMP/empire-release-check"
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/empire-release-check"
+          trap 'hdiutil detach "$RUNNER_TEMP/empire-release-check" -quiet || true' EXIT
+          test -d "$RUNNER_TEMP/empire-release-check/The Empire State BBS.app"
+          test -L "$RUNNER_TEMP/empire-release-check/Applications"
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
