@@ -511,7 +511,8 @@ class SitdownApp:
             present = self.address.get().strip() in self.last_serial_ports
         self.radio_health.set(radio_health_label(self.demo.get(),
             bool(monitor and monitor.running), bool(monitor and monitor.ready),
-            present, self.waiting_for_usb, monitor.radio_state if monitor else None))
+            present, self.waiting_for_usb and self.connection.get() == "serial",
+            monitor.radio_state if monitor else None))
 
     def show_about(self):
         messagebox.showinfo(

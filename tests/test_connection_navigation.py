@@ -13,27 +13,29 @@ from sitdown_desktop import SitdownApp, THEME
 class ConnectionNavigationTests(unittest.TestCase):
     def test_navigation_reveals_controls_and_preserves_session_for_every_state(self):
         cases = [
-            (False, None, False, 'BBS STOPPED'),
-            (True, None, False, 'DEMO'),
-            (False, SimpleNamespace(running=True, ready=False, radio_state=None), False, 'STARTING'),
-            (False, SimpleNamespace(running=True, ready=True, radio_state=None), False, 'radio link UNVERIFIED'),
-            (False, SimpleNamespace(running=True, ready=True, radio_state='RECONNECTING'), False, 'RECONNECTING'),
-            (False, SimpleNamespace(running=True, ready=True, radio_state='CONNECTED'), False, 'RF delivery UNVERIFIED'),
-            (False, None, True, 'USB MISSING'),
+            (False, None, False, 'BBS STOPPED', 'tcp'),
+            (True, None, False, 'DEMO', 'tcp'),
+            (False, SimpleNamespace(running=True, ready=False, radio_state=None), False, 'STARTING', 'tcp'),
+            (False, SimpleNamespace(running=True, ready=True, radio_state=None), False, 'radio link UNVERIFIED', 'tcp'),
+            (False, SimpleNamespace(running=True, ready=True, radio_state='RECONNECTING'), False, 'RECONNECTING', 'tcp'),
+            (False, SimpleNamespace(running=True, ready=True, radio_state='CONNECTED'), False, 'RF delivery UNVERIFIED', 'tcp'),
+            (False, None, True, 'USB MISSING', 'serial'),
+            (False, None, True, 'BBS STOPPED', 'tcp'),
         ]
-        for demo, supervisor, waiting, expected in cases:
-            with self.subTest(expected=expected):
+        for demo, supervisor, waiting, expected, mode in cases:
+            with self.subTest(expected=expected, mode=mode):
                 app = SitdownApp.__new__(SitdownApp)
                 app.root = Mock()
                 app.connection_panel = Mock()
                 app.connection_address = Mock()
                 app.colors = THEME
                 app.demo = Mock(get=Mock(return_value=demo))
-                app.connection = Mock(get=Mock(return_value='tcp'))
+                app.connection = Mock(get=Mock(return_value=mode))
                 app.address = Mock(get=Mock(return_value='radio.local'))
                 app.radio_health = Mock()
                 app.supervisor = supervisor
                 app.waiting_for_usb = waiting
+                app.last_serial_ports = None
                 app.restart_at = 123
                 app.retry_count = 3
                 with patch('sitdown_desktop.messagebox') as dialogs, \
