@@ -27,6 +27,10 @@ def check_tcp_target(host, port=4403, timeout=2.0, connector=None):
     """Test TCP reachability only; does not negotiate a Meshtastic session."""
     if not host:
         return "Enter a TCP host before testing."
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        return "Enter a valid TCP port (1–65535) before testing."
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= 30:
+        return "Enter a TCP timeout greater than 0 and at most 30 seconds."
     dial = connector or socket.create_connection
     try:
         sock = dial((host, port), timeout=timeout)
