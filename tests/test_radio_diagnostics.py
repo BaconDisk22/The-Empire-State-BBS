@@ -19,6 +19,18 @@ class RadioDiagnosticsTests(unittest.TestCase):
         self.assertIn("remain unverified", result)
         conn.close.assert_called_once()
 
+    def test_invalid_tcp_port_does_not_dial(self):
+        dial = Mock()
+        for port in (0, -1, 65536, True, "4403"):
+            self.assertIn("valid TCP port", check_tcp_target("radio.local", port=port, connector=dial))
+        dial.assert_not_called()
+
+    def test_invalid_tcp_timeout_does_not_dial(self):
+        dial = Mock()
+        for timeout in (0, -1, 31, True, "slow"):
+            self.assertIn("TCP timeout", check_tcp_target("radio.local", timeout=timeout, connector=dial))
+        dial.assert_not_called()
+
     def test_tcp_unreachable(self):
         def fail(*args, **kwargs):
             raise OSError("refused")
