@@ -95,14 +95,6 @@ jobs:
           hdiutil create -volname "The Empire State BBS $VERSION" -srcfolder dmg-staging \
             -ov -format UDZO "The-Empire-State-BBS-Intel-Mac-$VERSION.dmg"
           shasum -a 256 "The-Empire-State-BBS-Intel-Mac-$VERSION.dmg" > SHA256SUMS.txt
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: The-Empire-State-BBS-Intel-Mac-Release
-          path: |
-            The-Empire-State-BBS-Intel-Mac-*.dmg
-            SHA256SUMS.txt
-          retention-days: 30
       - name: Verify release DMG and checksums
         shell: bash
         env:
@@ -115,7 +107,18 @@ jobs:
           hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/empire-release-check"
           trap 'hdiutil detach "$RUNNER_TEMP/empire-release-check" -quiet || true' EXIT
           test -d "$RUNNER_TEMP/empire-release-check/The Empire State BBS.app"
+          test -x "$RUNNER_TEMP/empire-release-check/The Empire State BBS.app/Contents/MacOS/The Empire State BBS"
+          test -f "$RUNNER_TEMP/empire-release-check/The Empire State BBS.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$RUNNER_TEMP/empire-release-check/The Empire State BBS.app/Contents/Info.plist" | grep -Fx 'The Empire State BBS'
           test -L "$RUNNER_TEMP/empire-release-check/Applications"
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: The-Empire-State-BBS-Intel-Mac-Release
+          path: |
+            The-Empire-State-BBS-Intel-Mac-*.dmg
+            SHA256SUMS.txt
+          retention-days: 30
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
