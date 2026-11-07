@@ -254,7 +254,7 @@ class LocalsPageTests(unittest.TestCase):
     def test_locals_lists_every_saved_node_and_filters(self):
         import time
         now = time.time()
-        self.app.node_directory.record_radio([radio_node(n, f'N{n}', heard=int(now) - n * 60) for n in range(1, 151)])
+        self.app.node_directory.record_radio([radio_node(n, f'N{n}', heard=int(now) - n * 60 + 30) for n in range(1, 151)])
         self.app.radio_node_count = 100
         self.app.refresh_node_count()
         self.assertEqual(self.app.node_count.get(), 'Known nodes: 150 (radio holds 100)')
