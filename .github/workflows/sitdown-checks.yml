@@ -20,7 +20,8 @@ jobs:
             sitdown_desktop.py sitdown_commands.py sitdown_monitor.py \
             message_processing.py desktop_views.py desktop_session.py \
             radio_diagnostics.py radio_health.py tcp_health.py \
-            config_init.py mail_outbox.py grapevine_protocol.py
+            config_init.py mail_outbox.py grapevine_protocol.py \
+            empire_ui.py scripts/capture_ui_tour.py
           python -m compileall -q tests
       - name: Unit tests
         env:

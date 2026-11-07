@@ -80,9 +80,10 @@ class ConnectionNavigationTests(unittest.TestCase):
                     yield child
                     yield from descendants(child)
 
+            # The sidebar's Connection item (its text label is clickable).
             button = next(w for w in descendants(root)
-                          if isinstance(w, tk.Label) and w.cget('text') == 'THE EMPIRE CONNECTION'
-                          and w.bind('<Button-1>'))
+                          if isinstance(w, tk.Label) and w.cget('text') == 'Connection'
+                          and w.bind('<Button-1>') and w in app.nav_items['connection'])
             original_widgets = set(descendants(root))
             app.address.set('radio.local')
             app.connection.set('tcp')
@@ -92,7 +93,8 @@ class ConnectionNavigationTests(unittest.TestCase):
             self.assertEqual(root.focus_lastfor(), app.connection_address)
             self.assertEqual(root.state(), 'normal')
             self.assertTrue(app.connection_address.winfo_viewable())
-            self.assertEqual(app.connection_panel.cget('highlightbackground'), THEME['highlight'])
+            self.assertEqual(app.connection_panel.cget('highlightbackground'), app.colors['highlight'])
+            self.assertEqual(app.current_page, 'connection')
             self.assertIn('BBS STOPPED', app.radio_health.get())
             button.event_generate('<Button-1>')
             root.withdraw()

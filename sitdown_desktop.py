@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""The Empire State BBS desktop launcher. Standard-library Tkinter GUI."""
+"""The Empire State BBS desktop app. Standard-library Tkinter GUI.
+
+One window with a sidebar: Dashboard, Messages, Bulletin, Locals,
+Connection, Radio commands, Settings and About. All styling comes from
+empire_ui (the design system). Server, radio and message logic is
+unchanged from the previous launcher.
+"""
 import json
 import ipaddress
 import sqlite3
@@ -8,6 +14,7 @@ import shutil
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, filedialog
@@ -16,19 +23,44 @@ from radio_health import radio_health_label
 from radio_diagnostics import available_serial_ports, check_serial_target, check_tcp_target
 import zipfile
 from desktop_session import DesktopStore
-from desktop_views import open_posts, open_nodes
+from desktop_views import open_posts, open_nodes, PostsPage, NodesPage, page_header
+import empire_ui as ui
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 DATA = Path.home() / ".empire-state-bbs"
 CONFIG = DATA / "launcher.json"
-THEME = {"background": "#090B10", "panel": "#171A22", "primary": "#342319",
-         "connected": "#44DF79", "text": "#F5F1E9", "highlight": "#FF791F"}
+APP_NAME = "The Empire State BBS"
+APP_VERSION = "0.1.0 beta"
+# Legacy colour map kept for callers/tests; screens use empire_ui tokens.
+THEME = {"background": ui._DARK["bg"], "panel": ui._DARK["surface"],
+         "primary": ui._DARK["accent"], "connected": ui._DARK["success"],
+         "text": ui._DARK["text"], "highlight": ui._DARK["accent"]}
 COMMANDS = [
     ("/empire", "Main menu"), ("/help", "Quick help"),
     ("/mail", "Check your mail"), ("/boards", "The Bulletin Board"),
     ("/fortune", "New York wisdom"), ("/tools", "Utilities"),
     ("/cancel", "Return to main menu"),
 ]
+ATTITUDES = [("clean", "Clean"), ("spicy", "Spicy"), ("unfiltered", "Uncensored")]
+ATTITUDE_HELP = {
+    "clean": "Classic New York, family friendly. The default.",
+    "spicy": "A little mouthy. Mild language.",
+    "unfiltered": "Full New York attitude, including strong language.",
+}
+# Sidebar: key, label, NYC name, icon, shortcut.
+NAV = [
+    ("home", "Dashboard", "Empire HQ", "home", "1"),
+    ("messages", "Messages", "The Grapevine", "messages", "2"),
+    ("bulletin", "Bulletin", "The Bulletin", "bulletin", "3"),
+    ("locals", "Locals", "Nodes heard", "locals", "4"),
+    ("connection", "Connection", "The Empire Connection", "connection", "5"),
+    ("commands", "Radio commands", "The Playbook", "commands", "6"),
+]
+NAV_FOOTER = [
+    ("settings", "Settings", "Control Room", "settings", ","),
+    ("about", "About", None, "about", None),
+]
+SPACE = ui.SPACE
 
 
 class SitdownApp:
@@ -51,26 +83,45 @@ class SitdownApp:
         self.welcome = tk.StringVar(value="AYO, welcome to the Empire State. One state. One network.")
         self.status = tk.StringVar(value="Stopped")
         self.radio_health = tk.StringVar(value="Radio health: unverified")
+        self.appearance = tk.StringVar(value="system")
+        self.text_scale = tk.StringVar(value="default")
         self.last_serial_scan = 0.0
         self.last_serial_ports = None
         self.waiting_for_usb = False
-        self.colors = THEME
-        self.root.title("THE EMPIRE STATE BBS | New York State Communications Network")
-        self.root.geometry("1360x870")
-        self.root.minsize(1100, 740)
-        self.root.configure(bg=THEME["background"])
+        self.current_page = None
+        self._probe = None
+        self.root.title(APP_NAME)
+        self.root.geometry("1280x840")
+        self.root.minsize(1000, 680)
         self.load()
+        self.theme = ui.Theme(root, self.appearance.get(), self.text_scale.get())
+        self.colors = dict(THEME, highlight=self.theme["accent"])
+        self._toast = ui.Toast(root, self.theme)
+        self.status.trace_add("write", self.update_status_color)
+        for var in (self.uptime, self.node_count, self.radio_health, self.connection,
+                    self.address, self.demo, self.attitude):
+            var.trace_add("write", lambda *_a: self.refresh_summary())
+        self.connection.trace_add("write", lambda *_a: self.on_connection_mode())
+        self.address.trace_add("write", lambda *_a: self.validate_address_live())
         self.build()
-        # Command shortcuts do not transmit or start/stop the server.
-        for sequence, action in [
-            ("<Command-1>", self.show_home), ("<Command-2>", self.show_messages),
-            ("<Command-3>", self.show_bulletin), ("<Command-4>", self.show_locals),
-            ("<Command-5>", self.show_radio), ("<Command-comma>", self.settings),
-        ]:
-            self.root.bind(sequence, lambda _event, callback=action: callback())
+        self.install_menu()
+        # Command shortcuts navigate only; they never transmit or start/stop the server.
+        for key, *_rest, shortcut in NAV + NAV_FOOTER:
+            if shortcut:
+                sequence = "<Command-comma>" if shortcut == "," else f"<Command-Key-{shortcut}>"
+                self.root.bind(sequence, lambda _event, k=key: self.open_section(k))
+        self.root.bind("<Command-n>", lambda _e: self.new_item_shortcut())
+        self.root.bind("<Command-f>", lambda _e: self.find_shortcut())
+        self.root.bind_all("<MouseWheel>", self.on_wheel, add="+")
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+        try:
+            self.root.createcommand("tk::mac::Quit", self.close)
+            self.root.createcommand("tk::mac::ShowPreferences", self.settings)
+        except tk.TclError:
+            pass
         self.root.after(1000, self.poll)
 
+    # ----------------------------------------------------------- settings
     def load(self):
         if CONFIG.exists():
             try:
@@ -80,7 +131,11 @@ class SitdownApp:
                 self.community.set(data.get("community", "The Empire State BBS"))
                 self.welcome.set(data.get("welcome", self.welcome.get()))
                 self.attitude.set(data.get("attitude", "clean") if data.get("attitude") in ("clean", "spicy", "unfiltered") else "clean")
-            except (ValueError, OSError):
+                if data.get("appearance") in dict(ui.APPEARANCES):
+                    self.appearance.set(data["appearance"])
+                if data.get("text_scale") in ui.TEXT_SCALES:
+                    self.text_scale.set(data["text_scale"])
+            except (ValueError, OSError, AttributeError):
                 pass
 
     def save(self):
@@ -88,190 +143,843 @@ class SitdownApp:
         CONFIG.write_text(json.dumps({
             "connection": self.connection.get(), "address": self.address.get(),
             "community": self.community.get(), "welcome": self.welcome.get(),
-            "attitude": self.attitude.get()
+            "attitude": self.attitude.get(), "appearance": self.appearance.get(),
+            "text_scale": self.text_scale.get(),
         }, indent=2), encoding="utf-8")
-        self.log("Control Room: settings saved.")
+        self.log("Settings saved.")
 
+    # -------------------------------------------------------------- shell
     def build(self):
-        c = self.colors
-        bg, panel, gold, cream = c["background"], c["panel"], c["highlight"], c["text"]
-        header = tk.Canvas(self.root, height=165, bg=panel, highlightthickness=0)
-        header.pack(fill="x", padx=14, pady=(12, 5))
-        self.header_canvas = header
-        header.bind("<Configure>", self.draw_skyline_header)
-
-        nav = tk.Frame(self.root, bg=bg)
-        nav.pack(fill="x", padx=14, pady=(3, 12))
-        for name, action in [
-            ("EMPIRE HQ", self.show_home), ("THE GRAPEVINE", self.show_messages),
-            ("THE BULLETIN", self.show_bulletin), ("THE LOCALS", self.show_locals),
-            ("THE EMPIRE CONNECTION", self.show_radio), ("SETTINGS", self.settings),
-            ("ABOUT", self.show_about)
-        ]:
-            self.styled_button(nav, name, action, "#9C3D0B" if name == "EMPIRE HQ" else panel).pack(side="left", padx=(0, 7))
-        cards = tk.Frame(self.root, bg=bg)
-        cards.pack(fill="x", padx=14, pady=6)
-        left = tk.Frame(cards, bg=panel, padx=19, pady=18,
-                        highlightthickness=2, highlightbackground=panel)
-        self.connection_panel = left
-        left.pack(side="left", fill="both", expand=True, padx=(0, 5))
-        self.panel_heading(left, "01  /  THE EMPIRE CONNECTION")
-        self.status_label = tk.Label(left, textvariable=self.status, bg=panel,
-                                     fg=c["highlight"], font=("Menlo", 12, "bold"))
-        self.status_label.pack(anchor="w", pady=6)
-        self.status.trace_add("write", self.update_status_color)
-        self.update_status_color()
-        tk.Label(left, textvariable=self.radio_health, bg=panel, fg=gold,
-                 wraplength=300, justify="left").pack(anchor="w")
-        tk.Label(left, textvariable=self.node_count, bg=panel, fg=cream).pack(anchor="w")
-        tk.Label(left, textvariable=self.uptime, bg=panel, fg=cream).pack(anchor="w")
-        for name, value in [("USB / Serial radio", "serial"), ("Network / TCP radio", "tcp")]:
-            tk.Radiobutton(left, text=name, variable=self.connection, value=value,
-                           bg=panel, fg=cream, selectcolor=bg).pack(anchor="w")
-        tk.Label(left, text="Serial port / TCP host", bg=panel, fg=gold).pack(anchor="w")
-        self.connection_address = tk.Entry(
-            left, textvariable=self.address, bg=bg, fg=cream,
-            insertbackground=cream, relief="flat")
-        self.connection_address.pack(fill="x", ipady=6, pady=4)
-        self.styled_button(left, "⌕  FIND USB PORTS", self.list_ports, bg).pack(fill="x", pady=5)
-        self.styled_button(left, "◎  CHECK RADIO TARGET", self.check_radio_target, bg).pack(fill="x", pady=5)
-        center = tk.Frame(cards, bg=panel, padx=19, pady=18)
-        center.pack(side="left", fill="both", expand=True, padx=5)
-        self.panel_heading(center, "02  /  BBS SERVER")
-        tk.Label(center, text="Actual server status is shown at left.",
-                 bg=panel, fg=cream).pack(anchor="w", pady=7)
-        tk.Checkbutton(center, text="DEMO MODE (NO RADIO)", variable=self.demo,
-                       bg=panel, fg=gold, selectcolor=bg).pack(anchor="w")
-        tk.Checkbutton(center, text="Auto recovery (crash / radio loss)", variable=self.auto_restart,
-                       bg=panel, fg=cream, selectcolor=bg).pack(anchor="w")
-        self.styled_button(center, "▶  START BBS SERVER", self.start, "#166F43").pack(fill="x", pady=(14, 5))
-        self.styled_button(center, "■  STOP SERVER", self.stop, "#9A302A").pack(fill="x", pady=5)
-        self.styled_button(center, "THE ARCHIVES", self.backup, bg).pack(fill="x", pady=5)
-        right = tk.Frame(cards, bg=panel, padx=19, pady=18)
-        right.pack(side="left", fill="both", expand=True, padx=(5, 0))
-        self.panel_heading(right, "03  /  EMPIRE STATE ATTITUDE")
-        tk.Label(right, text="Turn up the New York. Clean by default.",
-                 bg=panel, fg=cream).pack(anchor="w", pady=7)
-        for value, name in [("clean", "CLEAN"), ("spicy", "SPICY"), ("unfiltered", "UNCENSORED")]:
-            tk.Radiobutton(right, text=name, variable=self.attitude, value=value,
-                           command=lambda v=value: self.set_attitude(v),
-                           bg=panel, fg=gold, selectcolor=bg).pack(anchor="w")
-        tk.Label(right, text="LOCAL PREVIEW • NOT TRANSMITTED", bg=panel,
-                 fg=gold, font=("Menlo", 9)).pack(anchor="w", pady=(8, 0))
-        self.preview = tk.Label(right, text=self.attitude_message(), bg=bg,
-                                fg=cream, font=("Menlo", 10), wraplength=290,
-                                justify="left", padx=8, pady=8)
-        self.preview.pack(fill="x", pady=5)
-        logpanel = tk.Frame(self.root, bg=panel, padx=18, pady=14)
-        logpanel.pack(fill="both", expand=True, padx=14, pady=(5, 10))
-        loghead = tk.Frame(logpanel, bg=panel)
-        loghead.pack(fill="x")
-        tk.Label(loghead, text="UNDER THE HOOD  /  SERVER LOG", bg=panel,
-                 fg=gold, font=("Helvetica", 13, "bold")).pack(side="left")
-        self.styled_button(loghead, "CLEAR LOG", self.clear_log, bg).pack(side="right")
-        self.output = tk.Text(logpanel, bg="#080C12", fg="#8CE9A3",
-                              insertbackground=cream, wrap="word", relief="flat",
-                              state="disabled", height=14, font=("Menlo", 11), padx=10, pady=8)
-        self.output.pack(fill="both", expand=True, pady=(7, 0))
+        t = self.theme
+        self.root.configure(bg=t["bg"])
+        self.shell = ui.frame(self.root, t)
+        self.shell.pack(fill="both", expand=True)
+        self.build_sidebar()
+        tk.Frame(self.shell, bg=t["border"], width=1).pack(side="left", fill="y")
+        self.content = ui.frame(self.shell, t)
+        self.content.pack(side="left", fill="both", expand=True)
+        self.content.rowconfigure(0, weight=1)
+        self.content.columnconfigure(0, weight=1)
+        self.pages = {}
+        self.page_objects = {}
+        builders = {
+            "home": self.build_dashboard, "connection": self.build_connection,
+            "commands": self.build_commands, "settings": self.build_settings,
+            "about": self.build_about,
+        }
+        for key, *_rest in NAV + NAV_FOOTER:
+            if key == "messages":
+                page = PostsPage(self, self.content, "mail")
+            elif key == "bulletin":
+                page = PostsPage(self, self.content, "bulletin")
+            elif key == "locals":
+                page = NodesPage(self, self.content)
+            else:
+                page = None
+            if page is not None:
+                self.page_objects[key] = page
+                frame = page.frame
+            else:
+                frame = ui.frame(self.content, t)
+                builders[key](frame)
+            frame.grid(row=0, column=0, sticky="nsew")
+            self.pages[key] = frame
         self.log(self.attitude_message())
-        self.log("EMPIRE HQ • Demo is clearly labeled. No simulated connections.")
-        self.log("Navigation: ⌘1 HQ • ⌘2 Grapevine • ⌘3 Bulletin • ⌘4 Locals • ⌘5 Connection • ⌘, Settings")
-        tk.Label(self.root, text="NEW YORK  •  62 COUNTIES  •  ONE NETWORK",
-                 bg=bg, fg=gold, font=("Menlo", 10, "bold")).pack(pady=(0, 8))
+        self.log("Demo mode is clearly labeled and never connects to a radio.")
+        self.log("Shortcuts: ⌘1 Dashboard · ⌘2 Messages · ⌘3 Bulletin · ⌘4 Locals · "
+                 "⌘5 Connection · ⌘6 Radio commands · ⌘, Settings")
+        self.update_status_color()
+        self.on_connection_mode()
+        self.refresh_summary()
+        self.navigate("home")
 
-    def update_status_color(self, *_args):
-        """Green only when running, not for stopped or unverified states."""
-        state = self.status.get().lower()
-        if state.startswith("demo"):
-            color = self.colors["highlight"]
-        elif state.startswith("running") or state.startswith("ready") or state.startswith("connected"):
-            color = self.colors["connected"]
-        elif state.startswith("starting") or "recovery" in state:
-            color = self.colors["highlight"]
+    def build_sidebar(self):
+        t = self.theme
+        side = ui.frame(self.shell, t, "surface", width=232)
+        side.pack(side="left", fill="y")
+        side.pack_propagate(False)
+        brand = ui.frame(side, t, "surface")
+        brand.pack(fill="x", padx=SPACE["lg"], pady=(SPACE["xl"], SPACE["lg"]))
+        mark = tk.Canvas(brand, width=34, height=34, bg=t["surface"], highlightthickness=0)
+        mark.pack(side="left")
+        self.draw_mark(mark)
+        words = ui.frame(brand, t, "surface")
+        words.pack(side="left", padx=(SPACE["sm"], 0))
+        ui.text(words, t, "Empire State", "body_strong", bg="surface").pack(anchor="w")
+        ui.text(words, t, "BBS · New York mesh", "caption", "text_muted", "surface").pack(anchor="w")
+        self.nav_items = {}
+        nav = ui.frame(side, t, "surface")
+        nav.pack(fill="x", padx=SPACE["sm"])
+        for item in NAV:
+            self.nav_row(nav, *item)
+        footer = ui.frame(side, t, "surface")
+        footer.pack(side="bottom", fill="x", padx=SPACE["sm"], pady=(0, SPACE["md"]))
+        status_box = ui.Card(footer, t, padding="md", bg="surface_alt")
+        status_box.pack(fill="x", padx=SPACE["xs"], pady=(0, SPACE["md"]))
+        ui.text(status_box.body, t, "SERVER", "overline", "text_faint", "surface_alt").pack(anchor="w")
+        self.side_status = ui.StatusPill(status_box.body, t, "Stopped", "neutral", bg="surface_alt")
+        self.side_status.pack(anchor="w", pady=(SPACE["xxs"], 0))
+        for widget in (status_box, status_box.body):
+            widget.bind("<Button-1>", lambda _e: self.navigate("connection"))
+        for item in NAV_FOOTER:
+            self.nav_row(footer, *item)
+
+    def nav_row(self, parent, key, label, nyc, icon, shortcut):
+        t = self.theme
+        row = tk.Frame(parent, bg=t["surface"], cursor="hand2", takefocus=True,
+                       highlightthickness=2, highlightbackground=t["surface"],
+                       highlightcolor=t["focus"])
+        row.pack(fill="x", pady=1)
+        glyph = tk.Label(row, text=ui.ICON[icon], width=2, font=t.font("headline"),
+                         bg=t["surface"], fg=t["text_muted"])
+        glyph.pack(side="left", padx=(SPACE["sm"], SPACE["xs"]), pady=SPACE["sm"])
+        name = tk.Label(row, text=label, font=t.font("body"), bg=t["surface"],
+                        fg=t["text"], anchor="w")
+        name.pack(side="left", fill="x", expand=True)
+        hint = tk.Label(row, text=("⌘" + shortcut) if shortcut else "", font=t.font("caption"),
+                        bg=t["surface"], fg=t["text_faint"])
+        hint.pack(side="right", padx=SPACE["sm"])
+        parts = (row, glyph, name, hint)
+        for widget in parts:
+            widget.bind("<Button-1>", lambda _e, k=key: self.open_section(k))
+            widget.bind("<Enter>", lambda _e, k=key: self.paint_nav(k, hover=True))
+            widget.bind("<Leave>", lambda _e, k=key: self.paint_nav(k))
+        row.bind("<Return>", lambda _e, k=key: self.open_section(k))
+        row.bind("<space>", lambda _e, k=key: self.open_section(k))
+        row.bind("<Up>", lambda _e: self.step_nav(-1))
+        row.bind("<Down>", lambda _e: self.step_nav(1))
+        row.bind("<FocusIn>", lambda _e: row.configure(highlightbackground=t["focus"]))
+        row.bind("<FocusOut>", lambda _e, k=key: self.paint_nav(k))
+        if nyc:
+            ui.Tooltip(row, t, nyc)
+        self.nav_items[key] = parts
+
+    def paint_nav(self, key, hover=False):
+        t = self.theme
+        parts = self.nav_items.get(key)
+        if not parts or not parts[0].winfo_exists():
+            return
+        active = key == self.current_page
+        bg = t["accent_soft"] if active else (t["surface_alt"] if hover else t["surface"])
+        for widget in parts:
+            widget.configure(bg=bg)
+        parts[1].configure(fg=t["accent"] if active else t["text_muted"])
+        parts[2].configure(fg=t["text"], font=t.font("body_strong" if active else "body"))
+        if self.root.focus_get() is not parts[0]:
+            parts[0].configure(highlightbackground=bg)
+
+    def step_nav(self, delta):
+        keys = [k for k, *_r in NAV + NAV_FOOTER]
+        index = keys.index(self.current_page) if self.current_page in keys else 0
+        target = keys[(index + delta) % len(keys)]
+        self.navigate(target)
+        self.nav_items[target][0].focus_set()
+        return "break"
+
+    def open_section(self, key):
+        """Sidebar/shortcut entry: Connection also focuses the address field."""
+        if key == "connection":
+            self.show_radio()
         else:
-            color = "#F28B82"
-        if hasattr(self, "status_label") and self.status_label.winfo_exists():
-            self.status_label.configure(fg=color)
+            self.navigate(key)
+
+    def navigate(self, key):
+        pages = getattr(self, "pages", None)
+        if not pages or key not in pages:
+            return
+        previous = self.current_page
+        self.current_page = key
+        pages[key].tkraise()
+        for name in self.nav_items:
+            self.paint_nav(name)
+        page = self.page_objects.get(key)
+        if page is not None and previous != key:
+            page.activate()
+        if key == "home":
+            self.refresh_summary()
+
+    def new_item_shortcut(self):
+        page = self.page_objects.get(self.current_page)
+        if isinstance(page, PostsPage):
+            page.compose()
+
+    def find_shortcut(self):
+        if self.current_page == "locals":
+            self.page_objects["locals"].search_entry.focus_set()
+
+    def install_menu(self):
+        menubar = tk.Menu(self.root)
+        app_menu = tk.Menu(menubar, name="apple", tearoff=0)
+        app_menu.add_command(label="About " + APP_NAME, command=lambda: self.navigate("about"))
+        app_menu.add_separator()
+        menubar.add_cascade(menu=app_menu)
+        view = tk.Menu(menubar, tearoff=0)
+        for key, label, _nyc, _icon, shortcut in NAV:
+            view.add_command(label=label, accelerator=f"Command-{shortcut}",
+                             command=lambda k=key: self.navigate(k))
+        menubar.add_cascade(label="View", menu=view)
+        server_box = tk.Menu(menubar, tearoff=0)
+        server_box.add_command(label="Start BBS server", command=self.start)
+        server_box.add_command(label="Stop BBS server", command=self.stop)
+        server_box.add_separator()
+        server_box.add_command(label="Check radio connection", command=self.check_radio_target)
+        server_box.add_command(label="Find USB radios", command=self.list_ports)
+        server_box.add_separator()
+        server_box.add_command(label="Back up data…", command=self.backup)
+        menubar.add_cascade(label="Server", menu=server_box)
+        window_menu = tk.Menu(menubar, name="window", tearoff=0)
+        menubar.add_cascade(label="Window", menu=window_menu)
+        help_menu = tk.Menu(menubar, name="help", tearoff=0)
+        help_menu.add_command(label="Radio commands", command=lambda: self.navigate("commands"))
+        help_menu.add_command(label="Connection troubleshooting", command=self.show_radio)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        self.root.configure(menu=menubar)
+        self._menubar = menubar
+
+    def rebuild(self):
+        """Apply a new appearance or text size without touching the server."""
+        log_text = self.output.get("1.0", "end-1c") if hasattr(self, "output") else ""
+        page = self.current_page or "home"
+        for child in self.root.winfo_children():
+            if isinstance(child, tk.Menu):
+                continue
+            child.destroy()
+        self.theme.configure(self.appearance.get(), self.text_scale.get())
+        self.colors = dict(THEME, highlight=self.theme["accent"])
+        self._toast = ui.Toast(self.root, self.theme)
+        self.current_page = None
+        self.build()
+        self.output.configure(state="normal")
+        self.output.delete("1.0", "end")
+        self.output.insert("end", log_text + ("\n" if log_text else ""))
+        self.output.see("end")
+        self.output.configure(state="disabled")
+        self.navigate(page)
+
+    def toast(self, message, tone="success"):
+        if getattr(self, "_toast", None):
+            self._toast.show(message, tone)
+
+    def scroll_page(self, parent):
+        """A vertically scrollable page body that fills the window width."""
+        t = self.theme
+        canvas = tk.Canvas(parent, bg=t["bg"], highlightthickness=0)
+        bar = ui.ttk.Scrollbar(parent, orient="vertical", command=canvas.yview,
+                               style="Empire.Vertical.TScrollbar")
+        inner = ui.frame(canvas, t)
+        window = canvas.create_window(0, 0, window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=bar.set)
+
+        def sync(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            needed = inner.winfo_reqheight() > canvas.winfo_height()
+            if needed and not bar.winfo_ismapped():
+                bar.pack(side="right", fill="y")
+            elif not needed and bar.winfo_ismapped():
+                bar.pack_forget()
+                canvas.yview_moveto(0)
+        inner.bind("<Configure>", sync)
+        canvas.bind("<Configure>", lambda e: (canvas.itemconfigure(window, width=e.width), sync()))
+
+        if not hasattr(self, "_scrollers"):
+            self._scrollers = {}
+        self._scrollers[str(parent)] = (canvas, inner)
+        canvas.pack(side="left", fill="both", expand=True)
+        return inner
+
+    def on_wheel(self, event):
+        """Scroll the visible page, unless the pointer is over a scrollable widget."""
+        widget = event.widget
+        if isinstance(widget, (tk.Text, tk.Listbox)) or isinstance(widget, ui.ttk.Treeview):
+            return
+        page = getattr(self, "pages", {}).get(self.current_page)
+        entry = getattr(self, "_scrollers", {}).get(str(page)) if page is not None else None
+        if not entry:
+            return
+        canvas, inner = entry
+        try:
+            if inner.winfo_reqheight() <= canvas.winfo_height():
+                return
+        except tk.TclError:
+            return
+        delta = event.delta if sys.platform == "darwin" else (event.delta // 120 or (1 if event.delta > 0 else -1))
+        canvas.yview_scroll(-delta, "units")
+
+    # ---------------------------------------------------------- dashboard
+    def build_dashboard(self, page):
+        t = self.theme
+        self.header_canvas = tk.Canvas(page, height=132, bg=t["sky_top"], highlightthickness=0)
+        self.header_canvas.pack(fill="x")
+        self.header_canvas.bind("<Configure>", self.draw_skyline_header)
+        body = ui.frame(page, t)
+        body.pack(fill="both", expand=True, padx=SPACE["xl"], pady=SPACE["xl"])
+        body.columnconfigure(0, weight=3, uniform="dash")
+        body.columnconfigure(1, weight=2, uniform="dash")
+        body.rowconfigure(2, weight=1)
+
+        server_box = ui.Card(body, t, padding="xl")
+        server_box.grid(row=0, column=0, sticky="nsew", padx=(0, SPACE["md"]))
+        top = ui.frame(server_box.body, t, "surface")
+        top.pack(fill="x")
+        ui.text(top, t, "BBS SERVER", "overline", "text_faint", "surface").pack(anchor="w")
+        self.status_label = ui.text(top, t, "", "title", "text", "surface", textvariable=self.status)
+        self.status_label.pack(anchor="w", pady=(SPACE["xxs"], 0), fill="x")
+        ui.wrap_to_width(self.status_label)
+        self.dash_health = ui.text(server_box.body, t, "", "body", "text_muted", "surface")
+        self.dash_health.pack(anchor="w", fill="x", pady=(SPACE["xs"], SPACE["lg"]))
+        ui.wrap_to_width(self.dash_health)
+        actions = ui.frame(server_box.body, t, "surface")
+        actions.pack(fill="x")
+        self.dash_power = ui.Button(actions, t, "Start server", self.toggle_server, "primary",
+                                    "start", size="lg")
+        self.dash_power.pack(side="left")
+        ui.Button(actions, t, "Connection settings", self.show_radio, "ghost", "chevron").pack(
+            side="left", padx=(SPACE["sm"], 0))
+        self.demo_badge = ui.StatusPill(actions, t, "Demo mode is on", "accent")
+
+        quick = ui.Card(body, t, padding="xl")
+        quick.grid(row=0, column=1, sticky="nsew")
+        ui.text(quick.body, t, "JUMP TO", "overline", "text_faint", "surface").pack(anchor="w")
+        for key, label, desc in [
+            ("messages", "Messages", "Read and draft direct messages"),
+            ("bulletin", "Bulletin", "Local board posts and replies"),
+            ("locals", "Locals", "Nodes your radio has heard"),
+            ("commands", "Radio commands", "What mesh users can DM the BBS"),
+        ]:
+            self.quick_link(quick.body, key, label, desc)
+
+        metrics = ui.frame(body, t)
+        metrics.grid(row=1, column=0, columnspan=2, sticky="ew", pady=SPACE["md"])
+        self.metric_values = {}
+        for index, (key, label) in enumerate([("radio", "Radio"), ("link", "Connection"),
+                                              ("nodes", "Nodes heard"), ("uptime", "Uptime")]):
+            metrics.columnconfigure(index, weight=1, uniform="metric")
+            card = ui.Card(metrics, t, padding="lg")
+            card.grid(row=0, column=index, sticky="nsew",
+                      padx=(0 if index == 0 else SPACE["xs"], 0 if index == 3 else SPACE["xs"]))
+            ui.text(card.body, t, label.upper(), "overline", "text_faint", "surface").pack(anchor="w")
+            value = ui.text(card.body, t, "—", "headline", "text", "surface")
+            value.pack(anchor="w", fill="x", pady=(SPACE["xs"], 0))
+            sub = ui.text(card.body, t, "", "caption", "text_muted", "surface")
+            sub.pack(anchor="w", fill="x")
+            ui.wrap_to_width(sub)
+            self.metric_values[key] = (value, sub)
+
+        logcard = ui.Card(body, t, padding="lg")
+        logcard.grid(row=2, column=0, columnspan=2, sticky="nsew")
+        loghead = ui.frame(logcard.body, t, "surface")
+        loghead.pack(fill="x", pady=(0, SPACE["sm"]))
+        ui.text(loghead, t, "Activity", "headline", bg="surface").pack(side="left")
+        ui.text(loghead, t, "  Server output and app events", "caption", "text_muted",
+                "surface").pack(side="left")
+        ui.Button(loghead, t, "Clear", self.clear_log, "ghost", size="sm").pack(side="right")
+        ui.Button(loghead, t, "Copy", self.copy_log, "ghost", "copy", size="sm").pack(
+            side="right", padx=(0, SPACE["xs"]))
+        border, self.output = ui.text_area(logcard.body, t, height=8, bg_slot="surface_sunken",
+                                           role="mono_small", state="disabled")
+        self.output.configure(fg=t["log_text"])
+        self.output.tag_configure("time", foreground=t["text_faint"])
+        border.pack(fill="both", expand=True)
+
+    def quick_link(self, parent, key, label, desc):
+        t = self.theme
+        row = tk.Frame(parent, bg=t["surface"], cursor="hand2", takefocus=True,
+                       highlightthickness=2, highlightbackground=t["surface"],
+                       highlightcolor=t["focus"])
+        row.pack(fill="x", pady=(SPACE["sm"], 0))
+        icon = dict((k, i) for k, _l, _n, i, _s in NAV)[key]
+        glyph = tk.Label(row, text=ui.ICON[icon], font=t.font("headline"), width=2,
+                         bg=t["surface_alt"], fg=t["accent"], padx=SPACE["xs"], pady=SPACE["xs"])
+        glyph.pack(side="left")
+        words = tk.Frame(row, bg=t["surface"])
+        words.pack(side="left", fill="x", expand=True, padx=SPACE["md"])
+        name = tk.Label(words, text=label, font=t.font("body_strong"), bg=t["surface"],
+                        fg=t["text"], anchor="w")
+        name.pack(anchor="w")
+        sub = tk.Label(words, text=desc, font=t.font("caption"), bg=t["surface"],
+                       fg=t["text_muted"], anchor="w")
+        sub.pack(anchor="w")
+        arrow = tk.Label(row, text=ui.ICON["chevron"], font=t.font("headline"),
+                         bg=t["surface"], fg=t["text_faint"])
+        arrow.pack(side="right", padx=SPACE["xs"])
+        hoverables = (row, words, name, sub, arrow)
+        for widget in hoverables + (glyph,):
+            widget.bind("<Button-1>", lambda _e: self.navigate(key))
+            widget.bind("<Enter>", lambda _e: [w.configure(bg=t["surface_alt"]) for w in hoverables])
+            widget.bind("<Leave>", lambda _e: [w.configure(bg=t["surface"]) for w in hoverables])
+        row.bind("<Return>", lambda _e: self.navigate(key))
+        row.bind("<space>", lambda _e: self.navigate(key))
+        row.bind("<FocusIn>", lambda _e: row.configure(highlightbackground=t["focus"]))
+        row.bind("<FocusOut>", lambda _e: row.configure(highlightbackground=t["surface"]))
+
+    def draw_mark(self, canvas):
+        """Small Empire State Building app mark for the sidebar."""
+        t = self.theme
+        canvas.create_rectangle(0, 0, 34, 34, fill=t["sky_top"], outline="")
+        canvas.create_rectangle(11, 14, 23, 34, fill=t["building"], outline="")
+        canvas.create_polygon(9, 15, 25, 15, 21, 10, 13, 10, fill=t["accent"], outline="")
+        canvas.create_rectangle(15, 4, 19, 10, fill=t["accent"], outline="")
+        canvas.create_line(17, 0, 17, 4, fill=t["accent"], width=2)
+        for x in (3, 26):
+            canvas.create_rectangle(x, 22, x + 6, 34, fill=t["building"], outline="")
 
     def draw_skyline_header(self, event=None):
-        """New York after dark: vector-only, resize-safe command-center masthead."""
+        """New York after dark: vector-only, resize-safe masthead."""
         canvas = self.header_canvas
+        t = self.theme
         canvas.delete("all")
-        width = max(canvas.winfo_width(), 1000)
-        height = 165
-        orange = self.colors["highlight"]
-        canvas.create_rectangle(0, 0, width, height, fill="#0D1018", outline="")
-        # A dusk horizon and layered NYC silhouette, without external image assets.
-        for y, shade in [(0, "#14111E"), (42, "#1F1623"), (84, "#2D1A20"),
-                         (122, "#17151B")]:
-            canvas.create_rectangle(0, y, width, y + 42, fill=shade, outline="")
-        for n in range(42):
+        width = max(canvas.winfo_width(), 600)
+        height = 132
+        bands = 6
+        top, bottom = t["sky_top"], t["sky_bottom"]
+        for i in range(bands):
+            mix = i / (bands - 1)
+            color = "#%02x%02x%02x" % tuple(
+                int(int(top[j:j + 2], 16) * (1 - mix) + int(bottom[j:j + 2], 16) * mix)
+                for j in (1, 3, 5))
+            canvas.create_rectangle(0, i * height / bands, width, (i + 1) * height / bands + 1,
+                                    fill=color, outline="")
+        for n in range(int(width / 36)):
             x = (n * 89 + 17) % max(width, 1)
-            top = 72 + (n * 37) % 55
-            bw = 20 + (n * 11) % 23
-            canvas.create_rectangle(x, top, x + bw, 155, fill="#090C13", outline="")
-            for wy in range(top + 9, 148, 16):
-                if (n + wy) % 3:
-                    canvas.create_rectangle(x + 7, wy, x + 10, wy + 5,
-                                            fill="#A85024", outline="")
-        # Empire State Building silhouette and illuminated crown.
-        tower = int(width * 0.73)
-        canvas.create_rectangle(tower - 24, 48, tower + 24, 155,
-                                fill="#0A0C12", outline="")
-        canvas.create_polygon(tower - 30, 50, tower + 30, 50,
-                              tower + 16, 33, tower - 16, 33, fill="#F28B32")
-        canvas.create_rectangle(tower - 8, 15, tower + 8, 34,
-                                fill="#F28B32", outline="")
-        canvas.create_line(tower, 3, tower, 15, fill="#FFD49C", width=3)
-        canvas.create_text(28, 22, anchor="nw", text="THE EMPIRE STATE",
-                           fill="#F7F3ED", font=("Helvetica", 30, "bold"))
-        canvas.create_text(29, 68, anchor="nw", text="B B S   /   COMMAND CENTER",
-                           fill=orange, font=("Helvetica", 23, "bold"))
-        canvas.create_text(30, 117, anchor="nw",
-                           text="FROM THE FIVE BOROUGHS TO THE NORTH COUNTRY",
-                           fill="#F4D7BF", font=("Menlo", 10, "bold"))
-        canvas.create_text(width - 24, 120, anchor="ne",
-                           text="62 COUNTIES  /  ONE NETWORK",
-                           fill=orange, font=("Menlo", 10, "bold"))
-        canvas.create_rectangle(0, 157, width, 162, fill=orange, outline="")
+            peak = 62 + (n * 37) % 46
+            if x < width * 0.55:
+                peak = max(peak, 112)  # keep the title area clear and readable
+            bw = 18 + (n * 11) % 22
+            canvas.create_rectangle(x, peak, x + bw, height, fill=t["building"], outline="")
+            for wy in range(peak + 8, height - 6, 14):
+                if (n + wy) % 4 == 0:
+                    canvas.create_rectangle(x + 6, wy, x + 9, wy + 4, fill=t["window_light"], outline="")
+        tower = int(width * 0.8)
+        accent = "#FF8A3D"
+        canvas.create_rectangle(tower - 20, 46, tower + 20, height, fill=t["building"], outline="")
+        canvas.create_polygon(tower - 25, 48, tower + 25, 48, tower + 13, 34, tower - 13, 34, fill=accent)
+        canvas.create_rectangle(tower - 6, 18, tower + 6, 35, fill=accent, outline="")
+        canvas.create_line(tower, 4, tower, 18, fill="#FFD49C", width=2)
+        community = self.community.get().strip() or APP_NAME
+        canvas.create_text(SPACE["xl"], 30, anchor="nw", text=community,
+                           fill="#F7F3ED", font=t.font("display"))
+        canvas.create_text(SPACE["xl"] + 1, 72, anchor="nw",
+                           text="From the Five Boroughs to the North Country",
+                           fill="#F4D7BF", font=t.font("body"))
+        canvas.create_text(SPACE["xl"] + 1, 96, anchor="nw",
+                           text="62 COUNTIES  ·  ONE NETWORK", fill=accent, font=t.font("overline"))
+        canvas.create_rectangle(0, height - 3, width, height, fill=accent, outline="")
 
-    def panel_heading(self, parent, title):
-        tk.Label(parent, text=title, bg=self.colors["panel"],
-                 fg=self.colors["highlight"], font=("Helvetica", 13, "bold")).pack(anchor="w", pady=(0, 8))
+    def refresh_summary(self):
+        """Derive dashboard and sidebar displays from the live state variables."""
+        if not getattr(self, "metric_values", None):
+            return
+        try:
+            if not self.dash_health.winfo_exists():
+                return
+            self._refresh_summary()
+        except tk.TclError:
+            pass  # widgets are being rebuilt
+
+    def _refresh_summary(self):
+        health = self.radio_health.get().replace("Radio health: ", "", 1)
+        self.dash_health.configure(text="Radio: " + health)
+        tone = self.status_tone()[0]
+        first = health.split(" — ")[0]
+        names = {"BBS STOPPED": "Stopped", "BBS READY": "Ready", "USB MISSING": "USB missing",
+                 "DEMO": "Demo", "STARTING": "Starting", "unverified": "Not verified"}
+        self.metric_values["radio"][0].configure(text=names.get(first, first.capitalize()),
+                                                 fg=self.theme[ui.TONES[tone][0]] if tone != "neutral" else self.theme["text"])
+        self.metric_values["radio"][1].configure(text=" — ".join(health.split(" — ")[1:]) or "Not verified")
+        mode = "Network (TCP)" if self.connection.get() == "tcp" else "USB / serial"
+        self.metric_values["link"][0].configure(text=mode)
+        self.metric_values["link"][1].configure(text=self.address.get().strip() or
+                                                ("Automatic port discovery" if self.connection.get() == "serial"
+                                                 else "No host set"))
+        self.metric_values["nodes"][0].configure(text=self.node_count.get().split(":")[-1].strip() or "0")
+        self.metric_values["nodes"][1].configure(text="This session · see Locals for history")
+        seconds = self.uptime.get().split(":")[-1].strip().rstrip("s")
+        self.metric_values["uptime"][0].configure(text=ui.humanize_seconds(seconds))
+        self.metric_values["uptime"][1].configure(text="Since the server started")
+        running = bool(self.supervisor and self.supervisor.running) or self.status.get().lower().startswith("demo running")
+        self.dash_power.set_label("Stop server" if running else "Start server",
+                                  "stop" if running else "start", "danger" if running else "primary")
+        if hasattr(self, "conn_power"):
+            self.conn_power.set_label("Stop server" if running else "Start server",
+                                      "stop" if running else "start", "danger" if running else "primary")
+        if self.demo.get() and not self.status.get().lower().startswith("demo"):
+            if not self.demo_badge.winfo_ismapped():
+                self.demo_badge.pack(side="right")
+        elif self.demo_badge.winfo_ismapped():
+            self.demo_badge.pack_forget()
+        if hasattr(self, "preview"):
+            self.preview.configure(text=self.attitude_message())
+            self.attitude_help.configure(text=ATTITUDE_HELP.get(self.attitude.get(), ""))
+
+    def toggle_server(self):
+        running = bool(self.supervisor and self.supervisor.running) or self.status.get().lower().startswith("demo running")
+        if running:
+            self.stop()
+        else:
+            self.start()
+        self.refresh_summary()
+
+    def status_tone(self):
+        state = self.status.get().lower()
+        if state.startswith("demo"):
+            return "accent", False
+        if state.startswith("running") or state.startswith("ready") or state.startswith("connected"):
+            return "success", False
+        if state.startswith("starting") or "recovery" in state:
+            return "warning", True
+        if state.startswith("stopped"):
+            return "neutral", False
+        return "danger", False
+
+    def update_status_color(self, *_args):
+        """Green only when running; stopped is neutral, problems are red."""
+        tone, pulse = self.status_tone()
+        fg = self.theme[ui.TONES[tone][0]] if tone != "neutral" else self.theme["text"]
+        if hasattr(self, "status_label") and self.status_label.winfo_exists():
+            self.status_label.configure(fg=fg)
+        if hasattr(self, "side_status") and self.side_status.winfo_exists():
+            self.side_status.set(self.short_status(), tone, pulse)
+        if hasattr(self, "conn_status") and self.conn_status.winfo_exists():
+            self.conn_status.set(self.status.get(), tone, pulse)
+        self.refresh_summary()
+
+    def short_status(self):
+        value = self.status.get()
+        short = value.split(" — ")[0]
+        return short if len(short) <= 26 else short[:25] + "…"
 
     def clear_log(self):
         self.output.configure(state="normal")
         self.output.delete("1.0", "end")
         self.output.configure(state="disabled")
 
+    def copy_log(self):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self.output.get("1.0", "end-1c"))
+        self.toast("Activity log copied to the clipboard")
+
     def show_home(self):
-        self.log("EMPIRE HQ: You're already on the dashboard.")
+        self.navigate("home")
+
+    # --------------------------------------------------------- connection
+    def build_connection(self, page):
+        t = self.theme
+        inner = self.scroll_page(page)
+        head, _actions = page_header(inner, t, "Connection",
+                                     "Choose how this Mac talks to your Meshtastic radio, then start the BBS server.",
+                                     "The Empire Connection")
+        head.pack(fill="x", padx=SPACE["xl"], pady=(SPACE["xl"], SPACE["lg"]))
+        grid = ui.frame(inner, t)
+        grid.pack(fill="both", expand=True, padx=SPACE["xl"], pady=(0, SPACE["xl"]))
+        grid.columnconfigure(0, weight=3, uniform="conn")
+        grid.columnconfigure(1, weight=2, uniform="conn")
+
+        radio = ui.Card(grid, t, padding="xl")
+        radio.grid(row=0, column=0, sticky="nsew", padx=(0, SPACE["md"]))
+        self.connection_panel = radio
+        ui.section_header(radio.body, t, "Radio", "How the BBS reaches your radio. Changes apply the next time "
+                          "the server starts.").pack(fill="x", anchor="w")
+        ui.Segmented(radio.body, t, self.connection,
+                     [("serial", "USB cable"), ("tcp", "Wi-Fi / network")]).pack(
+            anchor="w", pady=(SPACE["lg"], SPACE["lg"]))
+        self.address_field = ui.Field(radio.body, t, "Serial port", self.address, " ")
+        self.address_field.pack(fill="x")
+        self.connection_address = self.address_field.entry
+        tools = ui.frame(radio.body, t, "surface")
+        tools.pack(fill="x", pady=(SPACE["lg"], 0))
+        self.find_ports_btn = ui.Button(tools, t, "Find USB radios", self.list_ports, "secondary", "search")
+        self.find_ports_btn.pack(side="left", padx=(0, SPACE["sm"]))
+        self.check_btn = ui.Button(tools, t, "Test connection", self.check_radio_target, "secondary", "check",
+                                   tooltip="Checks the port or network address only. Nothing is transmitted.")
+        self.check_btn.pack(side="left")
+        self.port_choices = ui.frame(radio.body, t, "surface")
+        self.port_choices.pack(fill="x")
+        self.connection_banner = ui.Banner(radio.body, t, bg="surface")
+        self.connection_banner.place_with(fill="x", pady=(SPACE["md"], 0))
+
+        side = ui.frame(grid, t)
+        side.grid(row=0, column=1, rowspan=2, sticky="nsew")
+        server_box = ui.Card(side, t, padding="xl")
+        server_box.pack(fill="x")
+        ui.section_header(server_box.body, t, "Server").pack(fill="x", anchor="w")
+        self.conn_status = ui.StatusPill(server_box.body, t, self.status.get(), "neutral")
+        self.conn_status.pack(anchor="w", pady=(SPACE["sm"], SPACE["xs"]))
+        health = ui.text(server_box.body, t, "", "caption", "text_muted", "surface",
+                         textvariable=self.radio_health)
+        health.pack(anchor="w", fill="x")
+        ui.wrap_to_width(health)
+        self.conn_power = ui.Button(server_box.body, t, "Start server", self.toggle_server, "primary",
+                                    "start", size="lg")
+        self.conn_power.pack(fill="x", pady=(SPACE["lg"], 0))
+        options = ui.Card(side, t, padding="xl")
+        options.pack(fill="x", pady=(SPACE["md"], 0))
+        ui.section_header(options.body, t, "Options").pack(fill="x", anchor="w", pady=(0, SPACE["sm"]))
+        ui.Toggle(options.body, t, "Demo mode", self.demo,
+                  "Explore the app without a radio. Nothing connects or transmits.").pack(fill="x")
+        tk.Frame(options.body, bg=t["border"], height=1).pack(fill="x", pady=SPACE["md"])
+        ui.Toggle(options.body, t, "Automatic recovery", self.auto_restart,
+                  "Restart the server after a crash or lost radio, with increasing delays "
+                  "up to one minute. If the USB radio is unplugged, waits for it to return.").pack(fill="x")
+
+        trouble = ui.Card(grid, t, padding="xl")
+        trouble.grid(row=1, column=0, sticky="nsew", padx=(0, SPACE["md"]), pady=(SPACE["md"], 0))
+        ui.section_header(trouble.body, t, "Troubleshooting", "Common fixes when the radio won't connect.").pack(
+            fill="x", anchor="w")
+        for title, lines in [
+            ("USB radio not found", [
+                "Use a data-capable USB cable (some cables only charge).",
+                "Unplug and reconnect the radio, then choose Find USB radios.",
+                "Quit other apps that may hold the port, such as the Meshtastic web client or a serial monitor.",
+            ]),
+            ("Network radio unreachable", [
+                "Enable Wi-Fi on the radio and confirm it joined the same network as this Mac.",
+                "Use the radio's IP address if its .local name doesn't resolve.",
+                "The radio accepts one network client at a time — close the Meshtastic app on other devices.",
+            ]),
+            ("What “Test connection” proves", [
+                "It checks that the port exists or that the address accepts a network connection on port 4403.",
+                "It does not prove the Meshtastic protocol works or that messages are delivered over the air.",
+                "Stop the server before testing — a second network connection can disrupt the radio.",
+            ]),
+        ]:
+            section = ui.Collapsible(trouble.body, t, title)
+            section.pack(fill="x", pady=(SPACE["sm"], 0))
+            for line in lines:
+                ui.wrap_to_width(ui.text(section.body, t, "•  " + line, "caption", "text_muted", "surface")).pack(
+                    anchor="w", fill="x", pady=1)
+
+    def on_connection_mode(self):
+        if not hasattr(self, "address_field") or not self.address_field.winfo_exists():
+            return
+        if self.connection.get() == "tcp":
+            self.address_field.winfo_children()[0].configure(text="Radio address")
+            self.address_field.set_help("Hostname or IP address, for example meshtastic.local or 192.168.1.50. "
+                                        "Port 4403 is used automatically.")
+            self.find_ports_btn.pack_forget()
+            for child in self.port_choices.winfo_children():
+                child.destroy()
+        else:
+            self.address_field.winfo_children()[0].configure(text="Serial port")
+            self.address_field.set_help("For example /dev/cu.usbserial-0001. Leave empty to let Meshtastic "
+                                        "find the radio automatically.")
+            if not self.find_ports_btn.winfo_ismapped():
+                self.find_ports_btn.pack(side="left", padx=(0, SPACE["sm"]), before=self.check_btn)
+        self.validate_address_live()
+
+    def validate_address_live(self):
+        if not hasattr(self, "address_field") or not self.address_field.winfo_exists():
+            return
+        if self.connection.get() == "tcp" and not self.address.get().strip():
+            self.address_field.set_error("")
+            return
+        self.address_field.set_error(self.validate_radio_target() or "")
+
+    def _notify_connection(self, message, tone="info", title="Radio connection"):
+        banner = getattr(self, "connection_banner", None)
+        try:
+            if banner is not None and banner.winfo_exists():
+                banner.show(message, tone)
+                return
+        except tk.TclError:
+            pass
+        (messagebox.showerror if tone == "danger" else messagebox.showinfo)(title, message)
+
+    def show_port_choices(self, ports):
+        if not hasattr(self, "port_choices"):
+            return
+        for child in self.port_choices.winfo_children():
+            child.destroy()
+        if not ports:
+            return
+        t = self.theme
+        ui.text(self.port_choices, t, "Detected ports — click to use:", "caption", "text_muted",
+                "surface").pack(anchor="w", pady=(SPACE["md"], SPACE["xs"]))
+        for port in ports:
+            ui.Button(self.port_choices, t, port, lambda p=port: (self.address.set(p), self.toast("Using " + p)),
+                      "secondary", "connection", size="sm").pack(anchor="w", pady=1)
+
+    # ------------------------------------------------------- radio command
+    def build_commands(self, page):
+        t = self.theme
+        inner = self.scroll_page(page)
+        head, _a = page_header(inner, t, "Radio commands",
+                               "What people on the mesh can send to your BBS node in a direct message. "
+                               "Copy a command to share it.", "The Playbook")
+        head.pack(fill="x", padx=SPACE["xl"], pady=(SPACE["xl"], SPACE["lg"]))
+        card = ui.Card(inner, t, padding="md")
+        card.pack(fill="x", padx=SPACE["xl"], pady=(0, SPACE["xl"]))
+        for index, (command, description) in enumerate(COMMANDS):
+            if index:
+                tk.Frame(card.body, bg=t["border"], height=1).pack(fill="x")
+            line = ui.frame(card.body, t, "surface")
+            line.pack(fill="x", pady=SPACE["xs"])
+            tk.Label(line, text=command, font=t.font("mono"), bg=t["surface_alt"], fg=t["accent"],
+                     padx=SPACE["sm"], pady=SPACE["xxs"], width=10, anchor="w").pack(
+                side="left", padx=(SPACE["xs"], SPACE["lg"]), pady=SPACE["xs"])
+            ui.text(line, t, description, "body", bg="surface").pack(side="left", fill="x", expand=True)
+
+            def copy(value=command):
+                self.root.clipboard_clear()
+                self.root.clipboard_append(value)
+                self.log("Copied radio command: " + value)
+                self.toast(f"Copied {value}")
+            ui.Button(line, t, "Copy", copy, "ghost", "copy", size="sm").pack(side="right")
+        ui.wrap_to_width(ui.text(inner, t, "These are typed on a phone or radio, not in this app. "
+                                 "The BBS answers over the mesh while the server is running.",
+                                 "caption", "text_muted")).pack(anchor="w", fill="x", padx=SPACE["xl"])
+
+    def commands(self):
+        self.navigate("commands")
 
     def command_panel(self, title, subtitle, commands):
-        """Read-only command browser: actual BBS content stays on the radio."""
-        win = tk.Toplevel(self.root)
-        win.title(title + " | The Empire State BBS")
-        win.geometry("560x420")
-        win.configure(bg=THEME["background"])
-        tk.Label(win, text=title.upper(), bg=THEME["background"],
-                 fg=THEME["highlight"], font=("Helvetica", 20, "bold")).pack(
-                     anchor="w", padx=20, pady=(20, 4))
-        tk.Label(win, text=subtitle, bg=THEME["background"], fg=THEME["text"],
-                 justify="left", wraplength=510).pack(anchor="w", padx=20, pady=(0, 15))
-        for command, description in commands:
-            line = tk.Frame(win, bg=THEME["panel"], padx=12, pady=9)
-            line.pack(fill="x", padx=20, pady=4)
-            tk.Label(line, text=command, bg=THEME["panel"],
-                     fg=THEME["highlight"], font=("Menlo", 12, "bold")).pack(side="left")
-            tk.Label(line, text=description, bg=THEME["panel"],
-                     fg=THEME["text"]).pack(side="left", padx=14)
-            def copy(value=command):
-                win.clipboard_clear()
-                win.clipboard_append(value)
-                win.update()
-                self.log("Copied radio command: " + value)
-            self.styled_button(line, "COPY", copy, THEME["background"]).pack(side="right")
+        """Compatibility: the command browser is now the Radio commands page."""
+        self.navigate("commands")
 
+    # ----------------------------------------------------------- settings
+    def build_settings(self, page):
+        t = self.theme
+        inner = self.scroll_page(page)
+        head, _a = page_header(inner, t, "Settings",
+                               "Preferences stored on this Mac. Changing them never transmits anything.",
+                               "Control Room")
+        head.pack(fill="x", padx=SPACE["xl"], pady=(SPACE["xl"], SPACE["lg"]))
+        col = ui.frame(inner, t)
+        col.pack(fill="x", padx=SPACE["xl"], pady=(0, SPACE["xl"]))
+
+        community = ui.Card(col, t, padding="xl")
+        community.pack(fill="x")
+        ui.section_header(community.body, t, "Community",
+                          "How your BBS introduces itself in this app.").pack(fill="x", anchor="w")
+        name_field = ui.Field(community.body, t, "Community name", self.community)
+        name_field.pack(fill="x", pady=(SPACE["lg"], 0))
+        welcome_field = ui.Field(community.body, t, "Welcome message", self.welcome,
+                                 "Saved locally. Sending it over the radio is not available yet.")
+        welcome_field.pack(fill="x", pady=(SPACE["md"], 0))
+        save_row = ui.frame(community.body, t, "surface")
+        save_row.pack(fill="x", pady=(SPACE["lg"], 0))
+        self.settings_state = ui.text(save_row, t, "", "caption", "text_muted", "surface")
+
+        def save_community():
+            if not self.community.get().strip():
+                name_field.set_error("Enter a community name.")
+                return
+            name_field.set_error("")
+            try:
+                self.save()
+            except OSError as exc:
+                messagebox.showerror("Couldn't save settings", str(exc), parent=self.root)
+                return
+            self.settings_state.configure(text=ui.ICON["check"] + "  Saved", fg=t["success"])
+            self.draw_skyline_header()
+            self.toast("Settings saved")
+        ui.Button(save_row, t, "Save changes", save_community, "primary", "check").pack(side="left")
+        self.settings_state.pack(side="left", padx=SPACE["md"])
+        if not getattr(self, "_settings_traced", False):
+            self._settings_traced = True
+            for var in (self.community, self.welcome):
+                var.trace_add("write", lambda *_a: self.mark_settings_dirty())
+
+        personality = ui.Card(col, t, padding="xl")
+        personality.pack(fill="x", pady=(SPACE["md"], 0))
+        ui.section_header(personality.body, t, "Personality",
+                          "The New York attitude the BBS uses in replies. Saved as soon as you choose.").pack(
+            fill="x", anchor="w")
+        ui.Segmented(personality.body, t, self.attitude, ATTITUDES, command=self.set_attitude).pack(
+            anchor="w", pady=(SPACE["lg"], SPACE["xs"]))
+        self.attitude_help = ui.text(personality.body, t, ATTITUDE_HELP.get(self.attitude.get(), ""),
+                                     "caption", "text_muted", "surface")
+        self.attitude_help.pack(anchor="w")
+        ui.text(personality.body, t, "PREVIEW · NOT TRANSMITTED", "overline", "text_faint", "surface").pack(
+            anchor="w", pady=(SPACE["lg"], SPACE["xs"]))
+        self.preview = ui.text(personality.body, t, self.attitude_message(), "mono", "text",
+                               "surface_sunken", padx=SPACE["md"], pady=SPACE["md"])
+        self.preview.pack(fill="x")
+        ui.wrap_to_width(self.preview, margin=SPACE["xl"])
+
+        appearance = ui.Card(col, t, padding="xl")
+        appearance.pack(fill="x", pady=(SPACE["md"], 0))
+        ui.section_header(appearance.body, t, "Appearance").pack(fill="x", anchor="w")
+        for label, var, options in [("Theme", self.appearance, ui.APPEARANCES),
+                                    ("Text size", self.text_scale, ui.TEXT_SCALE_LABELS)]:
+            row = ui.frame(appearance.body, t, "surface")
+            row.pack(fill="x", pady=(SPACE["lg"], 0))
+            ui.text(row, t, label, "body_strong", bg="surface", width=12).pack(side="left")
+            ui.Segmented(row, t, var, options, command=lambda _v: self.apply_appearance()).pack(side="left")
+
+        data = ui.Card(col, t, padding="xl")
+        data.pack(fill="x", pady=(SPACE["md"], 0))
+        ui.section_header(data.body, t, "Data & backups",
+                          "Backups can contain private messages and radio keys. Store them safely.").pack(
+            fill="x", anchor="w")
+        row = ui.frame(data.body, t, "surface")
+        row.pack(fill="x", pady=(SPACE["lg"], 0))
+        ui.Button(row, t, "Back up data…", self.backup, "secondary", "archive").pack(side="left")
+        ui.Button(row, t, "Show data folder", self.reveal_data, "ghost", "folder").pack(
+            side="left", padx=(SPACE["sm"], 0))
+        ui.Button(row, t, "Legacy drafts…", self.list_local_mail_drafts, "ghost").pack(
+            side="left", padx=(SPACE["sm"], 0))
+        ui.text(data.body, t, "Data folder: " + str(DATA), "caption", "text_faint", "surface").pack(
+            anchor="w", pady=(SPACE["sm"], 0))
+
+    def mark_settings_dirty(self):
+        label = getattr(self, "settings_state", None)
+        try:
+            if label is not None and label.winfo_exists():
+                label.configure(text="Unsaved changes", fg=self.theme["warning"])
+        except tk.TclError:
+            pass
+
+    def apply_appearance(self):
+        try:
+            self.save()
+        except OSError as exc:
+            self.log(f"Could not save appearance: {exc}")
+        self.rebuild()
+        self.toast("Appearance updated")
+
+    def settings(self):
+        self.navigate("settings")
+
+    def reveal_data(self):
+        DATA.mkdir(parents=True, exist_ok=True)
+        opener = ["open", str(DATA)] if sys.platform == "darwin" else ["xdg-open", str(DATA)]
+        try:
+            subprocess.Popen(opener)
+        except OSError as exc:
+            messagebox.showerror("Couldn't open folder", str(exc), parent=self.root)
+
+    # -------------------------------------------------------------- about
+    def build_about(self, page):
+        t = self.theme
+        inner = self.scroll_page(page)
+        card = ui.Card(inner, t, padding="xl")
+        card.pack(fill="x", padx=SPACE["xl"], pady=SPACE["xl"])
+        top = ui.frame(card.body, t, "surface")
+        top.pack(fill="x")
+        mark = tk.Canvas(top, width=34, height=34, bg=t["surface"], highlightthickness=0)
+        mark.pack(side="left", anchor="n")
+        self.draw_mark(mark)
+        words = ui.frame(top, t, "surface")
+        words.pack(side="left", padx=SPACE["md"])
+        ui.text(words, t, APP_NAME, "title", bg="surface").pack(anchor="w")
+        ui.text(words, t, f"Version {APP_VERSION} · Intel Mac", "caption", "text_muted", "surface").pack(anchor="w")
+        for heading, body in [
+            ("What it is", "A New York statewide Meshtastic bulletin board system — from the Five Boroughs "
+                           "to the North Country. Mail, bulletins and radio commands for your local mesh."),
+            ("Safety", "Demo mode never connects or transmits. Saving a draft never transmits. Each send "
+                       "happens once, only after you confirm, and is never retried automatically."),
+            ("Credits", "Based on TC²-BBS by TheCommsChannel, with adaptations through The Sitdown BBS. "
+                        "Original contributors retain their credits."),
+            ("License", "GNU General Public License v3. See README and LICENSE."),
+        ]:
+            ui.text(card.body, t, heading, "body_strong", bg="surface").pack(anchor="w", pady=(SPACE["lg"], 0))
+            ui.wrap_to_width(ui.text(card.body, t, body, "body", "text_muted", "surface")).pack(
+                anchor="w", fill="x", pady=(SPACE["xxs"], 0))
+
+    def show_about(self):
+        self.navigate("about")
+
+    # ---------------------------------------------------- local records
     def local_database(self):
         """Locate the BBS SQLite store without creating an empty database."""
         for path in (DATA / "bulletins.db", ROOT / "bulletins.db"):
@@ -281,45 +989,39 @@ class SitdownApp:
 
     def browse_local_records(self, title, table, columns):
         """Read-only browser of the local BBS database, never a radio inbox."""
-        win = tk.Toplevel(self.root)
-        win.title(title + " | Empire State BBS")
-        win.geometry("800x530")
-        win.configure(bg=THEME["background"])
-        tk.Label(win, text=title.upper(), bg=THEME["background"],
-                 fg=THEME["highlight"], font=("Helvetica", 22, "bold")).pack(
-                     anchor="w", padx=18, pady=(15, 5))
-        tk.Label(win, text="LOCAL BBS DATABASE ONLY • not a synced mesh feed. "
-                 "Mail may contain private messages. No radio transmission occurs here.",
-                 bg=THEME["background"], fg=THEME["text"], wraplength=760,
-                 justify="left").pack(anchor="w", padx=18, pady=(0, 10))
+        t = self.theme
+        win = ui.sheet(self.root, t, title + " | " + APP_NAME, 820, 600)
+        pad = ui.frame(win, t)
+        pad.pack(fill="both", expand=True, padx=SPACE["xl"], pady=SPACE["xl"])
+        ui.text(pad, t, title, "title").pack(anchor="w")
+        ui.wrap_to_width(ui.text(pad, t, "Read-only view of the BBS database on this Mac — not a live mesh feed. "
+                                 "Mail may contain private messages. Nothing is transmitted.",
+                                 "body", "text_muted")).pack(anchor="w", fill="x", pady=(SPACE["xxs"], SPACE["lg"]))
         search = tk.StringVar()
-        search_row = tk.Frame(win, bg=THEME["background"])
-        search_row.pack(fill="x", padx=18, pady=(0, 8))
-        tk.Label(search_row, text="SEARCH LOCAL RECORDS", bg=THEME["background"],
-                 fg=THEME["highlight"]).pack(side="left", padx=(0, 10))
-        tk.Entry(search_row, textvariable=search, bg=THEME["panel"],
-                 fg=THEME["text"], insertbackground=THEME["text"],
-                 relief="flat").pack(side="left", fill="x", expand=True)
-        content = tk.Text(win, bg=THEME["panel"], fg=THEME["text"],
-                          insertbackground=THEME["text"], wrap="word",
-                          font=("Menlo", 11), padx=12, pady=12)
-        content.pack(fill="both", expand=True, padx=18, pady=5)
-        def refresh():
+        row = ui.frame(pad, t)
+        row.pack(fill="x", pady=(0, SPACE["md"]))
+        field = ui.Field(row, t, "Search the latest 100 records", search, bg="bg")
+        field.pack(side="left", fill="x", expand=True)
+        border, content = ui.text_area(pad, t, height=14, bg_slot="surface", role="mono_small")
+        border.pack(fill="both", expand=True)
+        content.tag_configure("key", foreground=t["text_faint"])
+        content.tag_configure("rule", foreground=t["border_strong"])
+
+        def refresh(_event=None):
             content.configure(state="normal")
             content.delete("1.0", "end")
             path = self.local_database()
             if not path:
-                content.insert("end", "No local BBS database found. Start the BBS "
-                               "to create records, then refresh.\\n")
+                content.insert("end", "No local BBS database yet. Start the BBS to create records, then refresh.\n")
             else:
                 try:
                     # Read-only URI prevents accidental writes and creation.
                     with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True,
                                          timeout=2) as conn:
-                        names = {row[0] for row in conn.execute(
+                        names = {r[0] for r in conn.execute(
                             "SELECT name FROM sqlite_master WHERE type='table'")}
                         if table not in names:
-                            content.insert("end", "The database has no " + table + " table.\\n")
+                            content.insert("end", "The database has no " + table + " table yet.\n")
                         else:
                             selected = ", ".join('"' + col + '"' for col in columns)
                             query = "SELECT " + selected + " FROM " + table + " ORDER BY id DESC LIMIT 100"
@@ -329,163 +1031,187 @@ class SitdownApp:
                                 records = [record for record in records if any(
                                     needle in str(value).casefold() for value in record)]
                             if not records:
-                                content.insert("end", "No matching local records among the latest 100.\\n")
+                                content.insert("end", "No matching records among the latest 100.\n")
                             for record in records:
                                 for col, value in zip(columns, record):
-                                    content.insert("end", f"{col}: {value}\\n")
-                                content.insert("end", "─" * 55 + "\\n")
+                                    content.insert("end", f"{col}: ", "key")
+                                    content.insert("end", f"{value}\n")
+                                content.insert("end", "─" * 55 + "\n", "rule")
                 except sqlite3.Error as exc:
                     content.insert("end", "Could not read local BBS data: " + str(exc))
             content.configure(state="disabled")
-        search_row.bind("<Return>", lambda _event: refresh())
-        self.styled_button(win, "SEARCH / REFRESH LOCAL RECORDS", refresh,
-                           THEME["primary"]).pack(pady=10)
+        field.entry.bind("<Return>", refresh)
+        ui.Button(row, t, "Search", refresh, "primary", "search", bg="bg").pack(
+            side="left", padx=(SPACE["sm"], 0), anchor="s")
         refresh()
+        field.entry.focus_set()
 
     def compose_local_mail_draft(self, draft_path=None):
-        """Save an operator draft locally, never to the BBS mail database."""
-        win = tk.Toplevel(self.root)
-        win.title("The Grapevine | Local Draft")
-        win.geometry("650x520")
-        win.configure(bg=THEME["background"])
-        tk.Label(win, text="NEW LOCAL MAIL DRAFT", bg=THEME["background"],
-                 fg=THEME["highlight"], font=("Helvetica", 19, "bold")).pack(
-                     anchor="w", padx=18, pady=(16, 6))
-        tk.Label(win, text="Saved only on this Mac. Not sent over the mesh.",
-                 bg=THEME["background"], fg=THEME["text"]).pack(
-                     anchor="w", padx=18)
-        fields = {}
-        for name in ("Recipient node ID", "Subject"):
-            tk.Label(win, text=name, bg=THEME["background"],
-                     fg=THEME["highlight"]).pack(anchor="w", padx=18, pady=(12, 2))
-            value = tk.StringVar()
-            tk.Entry(win, textvariable=value, bg=THEME["panel"],
-                     fg=THEME["text"], insertbackground=THEME["text"]).pack(
-                         fill="x", padx=18)
-            fields[name] = value
-        tk.Label(win, text="Message", bg=THEME["background"],
-                 fg=THEME["highlight"]).pack(anchor="w", padx=18, pady=(12, 2))
-        body = tk.Text(win, height=9, bg=THEME["panel"], fg=THEME["text"],
-                       insertbackground=THEME["text"], wrap="word")
-        body.pack(fill="both", expand=True, padx=18)
+        """Edit a legacy operator draft saved locally, never to the BBS mail database."""
+        t = self.theme
+        saved = {}
         if draft_path is not None:
             try:
                 saved = json.loads(draft_path.read_text(encoding="utf-8"))
-                fields["Recipient node ID"].set(str(saved.get("recipient", "")))
-                fields["Subject"].set(str(saved.get("subject", "")))
-                body.insert("1.0", str(saved.get("message", "")))
             except (OSError, ValueError) as exc:
-                messagebox.showerror("Draft error", str(exc), parent=win)
-                win.destroy()
+                messagebox.showerror("Couldn't open draft", str(exc), parent=self.root)
                 return
-        def save_draft():
-            recipient = fields["Recipient node ID"].get().strip()
-            subject = fields["Subject"].get().strip()
+        win = ui.sheet(self.root, t, "Legacy draft | " + APP_NAME, 640, 560)
+        pad = ui.frame(win, t)
+        pad.pack(fill="both", expand=True, padx=SPACE["xl"], pady=SPACE["xl"])
+        ui.text(pad, t, "Edit legacy draft" if draft_path else "New legacy draft", "title").pack(anchor="w")
+        ui.text(pad, t, "Saved only on this Mac. Not sent over the mesh.", "body", "text_muted").pack(
+            anchor="w", pady=(SPACE["xxs"], SPACE["lg"]))
+        recipient = ui.Field(pad, t, "Recipient node ID", tk.StringVar(value=str(saved.get("recipient", ""))),
+                             "A Meshtastic node ID like !a1b2c3d4.", bg="bg")
+        recipient.pack(fill="x")
+        subject = ui.Field(pad, t, "Subject", tk.StringVar(value=str(saved.get("subject", ""))), bg="bg")
+        subject.pack(fill="x", pady=(SPACE["md"], 0))
+        ui.text(pad, t, "Message", "label").pack(anchor="w", pady=(SPACE["md"], SPACE["xs"]))
+        border, body = ui.text_area(pad, t, height=8)
+        border.pack(fill="both", expand=True)
+        body.insert("1.0", str(saved.get("message", "")))
+
+        def save_draft(_event=None):
+            rid = recipient.value().strip()
+            subj = subject.value().strip()
             message = body.get("1.0", "end-1c").strip()
-            if not recipient or not subject or not message:
-                messagebox.showerror("Draft incomplete",
-                                     "Recipient, subject and message are required.",
-                                     parent=win)
-                return
-            if not (recipient.startswith("!") and len(recipient) == 9
-                    and all(c in "0123456789abcdefABCDEF" for c in recipient[1:])):
-                messagebox.showerror("Invalid recipient",
-                                     "Use a Meshtastic node ID such as !a1b2c3d4.",
-                                     parent=win)
-                return
+            recipient.set_error("" if rid else "Required.")
+            subject.set_error("" if subj else "Required.")
+            if not rid or not subj or not message:
+                if not message:
+                    messagebox.showerror("Draft incomplete", "Recipient, subject and message are required.",
+                                         parent=win)
+                return "break"
+            if not (rid.startswith("!") and len(rid) == 9
+                    and all(c in "0123456789abcdefABCDEF" for c in rid[1:])):
+                recipient.set_error("Use a Meshtastic node ID such as !a1b2c3d4.")
+                return "break"
             drafts = DATA / "drafts"
-            drafts.mkdir(parents=True, exist_ok=True)
-            import uuid
-            draft = draft_path if draft_path is not None else drafts / (uuid.uuid4().hex + ".json")
-            draft.write_text(json.dumps({"recipient": recipient,
-                                         "subject": subject, "message": message},
-                                        indent=2), encoding="utf-8")
+            try:
+                drafts.mkdir(parents=True, exist_ok=True)
+                import uuid
+                draft = draft_path if draft_path is not None else drafts / (uuid.uuid4().hex + ".json")
+                draft.write_text(json.dumps({"recipient": rid, "subject": subj, "message": message},
+                                            indent=2), encoding="utf-8")
+            except OSError as exc:
+                messagebox.showerror("Couldn't save draft", str(exc), parent=win)
+                return "break"
             self.log("Saved a local mail draft; nothing was transmitted.")
-            messagebox.showinfo("Draft saved", "Saved locally. No radio message sent.",
-                                parent=win)
+            self.toast("Draft saved — nothing was transmitted")
             win.destroy()
-        self.styled_button(win, "SAVE LOCAL DRAFT (DO NOT SEND)", save_draft,
-                           THEME["primary"]).pack(pady=12)
+            if getattr(self, "_drafts_refresh", None):
+                self._drafts_refresh()
+            return "break"
+        buttons = ui.frame(pad, t)
+        buttons.pack(fill="x", pady=(SPACE["lg"], 0))
+        ui.Button(buttons, t, "Save draft", save_draft, "primary", "check", bg="bg").pack(side="right")
+        ui.Button(buttons, t, "Cancel", win.destroy, "ghost", bg="bg").pack(side="right", padx=(0, SPACE["sm"]))
+        win.bind("<Command-s>", save_draft)
+        recipient.entry.focus_set()
 
     def list_local_mail_drafts(self):
-        """Browse and reopen local drafts without sending over the mesh."""
+        """Browse and reopen legacy drafts without sending over the mesh."""
+        existing = getattr(self, "_drafts_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.deiconify()
+            existing.lift()
+            return
+        t = self.theme
         folder = DATA / "drafts"
-        win = tk.Toplevel(self.root)
-        win.title("The Grapevine | Saved Drafts")
-        win.geometry("630x400")
-        win.configure(bg=THEME["background"])
-        tk.Label(win, text="SAVED LOCAL DRAFTS", bg=THEME["background"],
-                 fg=THEME["highlight"], font=("Helvetica", 18, "bold")).pack(
-                     anchor="w", padx=18, pady=14)
-        items = tk.Listbox(win, bg=THEME["panel"], fg=THEME["text"],
-                           selectbackground=THEME["primary"])
-        items.pack(fill="both", expand=True, padx=18, pady=6)
-        paths = []
+        win = ui.sheet(self.root, t, "Legacy drafts | " + APP_NAME, 680, 480)
+        self._drafts_window = win
+        pad = ui.frame(win, t)
+        pad.pack(fill="both", expand=True, padx=SPACE["xl"], pady=SPACE["xl"])
+        ui.text(pad, t, "Legacy drafts", "title").pack(anchor="w")
+        ui.wrap_to_width(ui.text(pad, t, "Drafts saved by earlier versions of the app. They stay on this Mac "
+                                 "and are never sent.", "body", "text_muted")).pack(
+            anchor="w", fill="x", pady=(SPACE["xxs"], SPACE["lg"]))
+        buttons = ui.frame(pad, t)
+        buttons.pack(side="bottom", fill="x", pady=(SPACE["lg"], 0))
+        table_box = ui.frame(pad, t)
+        table_box.pack(fill="both", expand=True)
+        box, items = ui.treeview(table_box, t, [("recipient", "Recipient", 140, False),
+                                                ("subject", "Subject", 380, True)], height=8)
+        box.pack(fill="both", expand=True)
+        empty = ui.EmptyState(table_box, t, "messages", "No legacy drafts",
+                              "New drafts are written from Messages.", bg="surface")
+        paths = {}
+
         def refresh():
-            items.delete(0, "end")
+            if not win.winfo_exists():
+                return
+            items.delete(*items.get_children())
             paths.clear()
-            for path in sorted(folder.glob("*.json"), reverse=True) if folder.exists() else []:
+            for index, path in enumerate(sorted(folder.glob("*.json"), reverse=True) if folder.exists() else []):
                 try:
                     record = json.loads(path.read_text(encoding="utf-8"))
-                    label = "{} — {}".format(record.get("recipient", "?"),
-                                             record.get("subject", "(no subject)"))
                 except (OSError, ValueError):
                     continue
-                paths.append(path)
-                items.insert("end", label)
+                iid = str(index)
+                paths[iid] = path
+                items.insert("", "end", iid=iid, values=(record.get("recipient", "?"),
+                                                         record.get("subject", "(no subject)")),
+                             tags=("even" if index % 2 else "odd",))
+            if paths:
+                empty.place_forget()
+            else:
+                empty.place(in_=table_box, relx=0, rely=0, relwidth=1, relheight=1)
+        self._drafts_refresh = refresh
+
+        def chosen():
+            selected = items.selection()
+            if not selected:
+                self.toast("Select a draft first", "info")
+                return None
+            return paths.get(selected[0])
+
         def edit_selected():
-            selected = items.curselection()
-            if not selected:
-                messagebox.showinfo("Select draft", "Choose a draft to edit.", parent=win)
-                return
-            self.compose_local_mail_draft(paths[selected[0]])
+            path = chosen()
+            if path:
+                self.compose_local_mail_draft(path)
+
         def delete_selected():
-            selected = items.curselection()
-            if not selected:
-                messagebox.showinfo("Select draft", "Choose a draft to delete.", parent=win)
+            path = chosen()
+            if not path:
                 return
-            path = paths[selected[0]]
-            if not messagebox.askyesno("Delete local draft",
-                                       "Permanently delete this local draft?\\n"
-                                       "No mesh or BBS messages will be affected.",
-                                       parent=win):
+            if not messagebox.askyesno("Delete this draft?",
+                                       "The draft will be permanently deleted from this Mac.\n"
+                                       "No mesh or BBS messages are affected.", parent=win, icon="warning"):
                 return
             try:
                 path.unlink()
             except OSError as exc:
-                messagebox.showerror("Delete failed", str(exc), parent=win)
+                messagebox.showerror("Couldn't delete draft", str(exc), parent=win)
                 return
             self.log("Deleted a local draft; no mesh message was changed.")
+            self.toast("Draft deleted")
             refresh()
+
         def copy_selected():
-            selected = items.curselection()
-            if not selected:
-                messagebox.showinfo("Select draft", "Choose a draft to copy.", parent=win)
+            path = chosen()
+            if not path:
                 return
             try:
-                record = json.loads(paths[selected[0]].read_text(encoding="utf-8"))
-                payload = "Recipient: {}\\nSubject: {}\\n\\n{}".format(
+                record = json.loads(path.read_text(encoding="utf-8"))
+                payload = "Recipient: {}\nSubject: {}\n\n{}".format(
                     record.get("recipient", ""), record.get("subject", ""),
                     record.get("message", ""))
                 win.clipboard_clear()
                 win.clipboard_append(payload)
-                win.update()
             except (OSError, ValueError, tk.TclError) as exc:
-                messagebox.showerror("Copy failed", str(exc), parent=win)
+                messagebox.showerror("Couldn't copy draft", str(exc), parent=win)
                 return
-            messagebox.showinfo("Copied locally",
-                                "Draft copied to clipboard. Nothing was sent.",
-                                parent=win)
-        self.styled_button(win, "EDIT SELECTED DRAFT", edit_selected,
-                           THEME["primary"]).pack(pady=8)
-        self.styled_button(win, "COPY SELECTED DRAFT", copy_selected,
-                           THEME["primary"]).pack(pady=(0, 8))
-        self.styled_button(win, "DELETE SELECTED LOCAL DRAFT", delete_selected,
-                           THEME["primary"]).pack(pady=(0, 8))
-        self.styled_button(win, "REFRESH DRAFT LIST", refresh,
-                           THEME["primary"]).pack(pady=(0, 10))
+            self.toast("Draft copied to the clipboard — nothing was sent")
+        ui.Button(buttons, t, "Edit", edit_selected, "primary", bg="bg").pack(side="right")
+        ui.Button(buttons, t, "Copy", copy_selected, "secondary", "copy", bg="bg").pack(
+            side="right", padx=(0, SPACE["sm"]))
+        ui.Button(buttons, t, "Delete…", delete_selected, "subtle_danger", bg="bg").pack(side="left")
+        items.bind("<Double-1>", lambda _e: edit_selected())
+        items.bind("<BackSpace>", lambda _e: delete_selected())
         refresh()
 
+    # ------------------------------------------------------- navigation
     def show_messages(self):
         open_posts(self, "mail")
 
@@ -497,11 +1223,24 @@ class SitdownApp:
 
     def show_radio(self):
         """Navigate to existing controls without touching the active radio session."""
+        self.navigate("connection")
         self.root.deiconify()
         self.root.lift()
         self.connection_panel.configure(highlightbackground=self.colors["highlight"])
         self.connection_address.focus_set()
         self.refresh_radio_health()
+        try:
+            self.root.after(1600, self._unhighlight_connection)
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _unhighlight_connection(self):
+        panel = getattr(self, "connection_panel", None)
+        try:
+            if isinstance(panel, tk.Widget) and panel.winfo_exists():
+                panel.configure(highlightbackground=self.theme["border"])
+        except tk.TclError:
+            pass
 
     def refresh_radio_health(self):
         """Display only the state already observed by the running supervisor."""
@@ -509,28 +1248,23 @@ class SitdownApp:
         present = None
         if self.connection.get() == "serial" and self.address.get().strip() and self.last_serial_ports is not None:
             present = self.address.get().strip() in self.last_serial_ports
-        self.radio_health.set(radio_health_label(self.demo.get(),
+        label = radio_health_label(self.demo.get(),
             bool(monitor and monitor.running), bool(monitor and monitor.ready),
             present, self.waiting_for_usb and self.connection.get() == "serial",
-            monitor.radio_state if monitor else None))
-
-    def show_about(self):
-        messagebox.showinfo(
-            "The Empire State BBS",
-            "New York statewide Meshtastic BBS.\n"
-            "From the Five Boroughs to the North Country.\n"
-            "Demo mode never connects or transmits.\n\n"
-            "Credits: Based on TC²-BBS by TheCommsChannel,\n"
-            "with adaptations through The Sitdown BBS.\n"
-            "Original contributors retain their credits.\n"
-            "Licensed under GNU GPLv3. See README and LICENSE."
-        )
+            monitor.radio_state if monitor else None)
+        # Skip identical writes so traces don't redraw the dashboard every poll.
+        try:
+            unchanged = isinstance(self.radio_health, tk.Variable) and self.radio_health.get() == label
+        except tk.TclError:
+            unchanged = False
+        if not unchanged:
+            self.radio_health.set(label)
 
     def attitude_message(self):
         return {
             "clean": "AYO! Welcome to the Empire State. Whaddya wanna do, boss?",
-            "spicy": "AYO! Welcome to New York. Pick a damn command already, we\u0027re busy over here!",
-            "unfiltered": "AYO! Welcome to the Empire State. Pick a fuckin\u0027 command, boss!",
+            "spicy": "AYO! Welcome to New York. Pick a damn command already, we're busy over here!",
+            "unfiltered": "AYO! Welcome to the Empire State. Pick a fuckin' command, boss!",
         }.get(self.attitude.get(), "AYO! Welcome to the Empire State.")
 
     def set_attitude(self, value):
@@ -541,33 +1275,19 @@ class SitdownApp:
         self.log(self.attitude_message())
 
     def styled_button(self, parent, text, command, color=None):
-        # macOS Aqua ignores custom backgrounds on native Tk buttons,
-        # producing white-on-white labels. Use a keyboard-accessible Label.
-        background = color or self.colors["primary"]
-        control = tk.Label(parent, text=text, bg=background, fg="#F5F1E9",
-                           padx=12, pady=11, cursor="hand2",
-                           font=("Helvetica", 10, "bold"), relief="flat",
-                           highlightthickness=2, highlightbackground=self.colors["background"],
-                           takefocus=True)
-        control.bind("<Enter>", lambda _event: control.configure(bg=self.colors["highlight"], fg="#090B10"))
-        control.bind("<Leave>", lambda _event: control.configure(bg=background, fg="#F5F1E9"))
-        control.bind("<Button-1>", lambda _event: command())
-        control.bind("<Return>", lambda _event: command())
-        control.bind("<space>", lambda _event: command())
-        control.bind("<FocusIn>", lambda _event: control.configure(
-            highlightbackground=self.colors["highlight"]))
-        control.bind("<FocusOut>", lambda _event: control.configure(
-            highlightbackground=self.colors["background"]))
-        return control
+        """Compatibility wrapper around the design-system button."""
+        return ui.Button(parent, self.theme, text, command, "secondary")
 
     def log(self, message):
         self.output.configure(state="normal")
+        self.output.insert("end", time.strftime("%H:%M:%S  "), "time")
         self.output.insert("end", message + "\n")
         if int(self.output.index("end-1c").split(".")[0]) > 2000:
             self.output.delete("1.0", "300.0")
         self.output.see("end")
         self.output.configure(state="disabled")
 
+    # ------------------------------------------------------- radio logic
     def validate_radio_target(self):
         """Validate connection input before launching the BBS process."""
         mode = self.connection.get()
@@ -601,10 +1321,20 @@ class SitdownApp:
             if len(ports) == 1 and self.connection.get() == "serial" and not self.address.get().strip():
                 self.address.set(ports[0])
                 self.log("Automatically selected the only available USB port.")
+            if hasattr(self, "connection_banner"):
+                if ports:
+                    self._notify_connection(f"Found {len(ports)} USB device{'s' if len(ports) != 1 else ''}. "
+                                            "Choose one below or type a port.", "success")
+                else:
+                    self._notify_connection("No USB serial devices found. Check the cable, radio power and "
+                                            "that no other app is using the radio.", "warning")
+                self.show_port_choices(ports)
         except ImportError:
             self.log("pyserial is missing. Install requirements.txt.")
+            self._notify_connection("USB support (pyserial) is missing from this installation.", "danger")
         except OSError as exc:
             self.log(f"USB enumeration failed: {exc}")
+            self._notify_connection(f"Couldn't list USB devices: {exc}", "danger")
 
     def watch_serial_ports(self):
         """Observe USB changes without opening a port or interrupting a session."""
@@ -651,25 +1381,58 @@ class SitdownApp:
     def check_radio_target(self):
         """Non-transmitting preflight; does not prove a Meshtastic session."""
         if self.demo.get():
-            messagebox.showinfo("Radio preflight", "Demo mode: no radio checks or transmissions.")
+            self._notify_connection("Demo mode is on, so no radio checks run and nothing is transmitted.",
+                                    "info", "Radio preflight")
             return
         if self.supervisor and self.supervisor.running:
-            messagebox.showinfo("Radio preflight", "Stop the BBS before preflight; a second TCP connection may disrupt the radio session.")
+            self._notify_connection("Stop the server before testing — a second network connection can "
+                                    "disrupt the running radio session.", "warning", "Radio preflight")
             return
         error = self.validate_radio_target()
         if error:
-            messagebox.showerror("Radio preflight", error)
+            self._notify_connection(error, "danger", "Radio preflight")
+            return
+        if self._probe is not None and self._probe.is_alive():
             return
         mode, address = self.connection.get(), self.address.get().strip()
-        try:
-            if mode == "serial":
-                result = check_serial_target(address)
-            else:
-                result = check_tcp_target(address)
-        except (OSError, ImportError) as exc:
-            result = f"Radio preflight failed: {exc}"
-        self.log(result)
-        messagebox.showinfo("Radio preflight", result)
+        result = {}
+
+        def probe():
+            try:
+                if mode == "serial":
+                    result["text"] = check_serial_target(address)
+                else:
+                    result["text"] = check_tcp_target(address)
+            except (OSError, ImportError) as exc:
+                result["text"] = f"Radio preflight failed: {exc}"
+
+        if not hasattr(self, "connection_banner"):
+            probe()  # headless/test callers: run synchronously
+            self.log(result["text"])
+            messagebox.showinfo("Radio preflight", result["text"])
+            return
+        # Run off the UI thread so a slow network never freezes the window.
+        self._notify_connection("Testing " + (address or "USB ports") + "…", "info")
+        if hasattr(self, "check_btn"):
+            self.check_btn.set_enabled(False)
+        self._probe = threading.Thread(target=probe, daemon=True)
+        self._probe.start()
+
+        def finish():
+            if self._probe.is_alive():
+                self.root.after(100, finish)
+                return
+            self._probe = None
+            text_value = result.get("text", "Radio preflight did not complete.")
+            self.log(text_value)
+            lowered = text_value.lower()
+            tone = ("danger" if any(w in lowered for w in ("unreachable", "failed", "not currently", "no usb"))
+                    else "success" if any(w in lowered for w in ("accepted", "is present", "available usb"))
+                    else "info")
+            self._notify_connection(text_value, tone)
+            if hasattr(self, "check_btn") and self.check_btn.winfo_exists():
+                self.check_btn.set_enabled(True)
+        self.root.after(100, finish)
 
     def start(self):
         if self.supervisor and self.supervisor.running:
@@ -686,14 +1449,16 @@ class SitdownApp:
             shutil.copy2(ROOT / "example_config.ini", config)
             self.log("Created config.ini in ~/.empire-state-bbs. Review it before connecting a radio.")
         if not config.exists():
-            messagebox.showerror("Need a Guy?", "Missing config.ini. Copy example_config.ini to config.ini and configure it first.")
+            messagebox.showerror("BBS configuration missing",
+                                 "config.ini wasn't found. Copy example_config.ini to config.ini, "
+                                 "edit it for your BBS, then start again.")
             return
         addr = self.address.get().strip()
         error = self.validate_radio_target()
         if error:
             self.status.set("Connection settings invalid")
             self.log("Connection validation: " + error)
-            messagebox.showerror("Radio connection", error)
+            messagebox.showerror("Check the radio connection", error)
             return
         if self.connection.get() == "serial" and not addr:
             self.log("No USB port selected; Meshtastic will try automatic discovery.")
@@ -761,84 +1526,40 @@ class SitdownApp:
             self.supervisor = None
         self.status.set("Stopped")
         self.uptime.set("Uptime: 0s")
-        self.log("Fuggedaboutit. Server stopped.")
-
-    def commands(self):
-        win = tk.Toplevel(self.root)
-        win.title("The Playbook | Radio Commands")
-        win.configure(bg=THEME["background"])
-        tk.Label(win, text="DM these commands to your BBS radio", bg=THEME["background"],
-                 fg=THEME["highlight"], font=("Helvetica", 14, "bold")).pack(padx=20, pady=12)
-        selected = tk.StringVar(value=COMMANDS[0][0])
-        for cmd, desc in COMMANDS:
-            tk.Radiobutton(win, text=f"{cmd} — {desc}", value=cmd, variable=selected,
-                           bg=THEME["background"], fg=THEME["text"],
-                           selectcolor=THEME["panel"], anchor="w").pack(fill="x", padx=20)
-        def copy():
-            win.clipboard_clear()
-            win.clipboard_append(selected.get())
-            win.update()
-        self.styled_button(win, "Copy selected command", copy, THEME["primary"]).pack(pady=15)
-
-    def settings(self):
-        """Local-only preferences in a readable NYC command-center window."""
-        existing = getattr(self, "_settings_window", None)
-        if existing is not None and existing.winfo_exists():
-            existing.deiconify()
-            existing.lift()
-            existing.focus_force()
-            return
-        win = tk.Toplevel(self.root)
-        self._settings_window = win
-        win.title("Control Room | Empire State BBS")
-        win.geometry("680x540")
-        win.minsize(560, 480)
-        win.configure(bg=THEME["background"])
-        tk.Label(win, text="CONTROL ROOM  /  SETTINGS",
-                 bg=THEME["background"], fg=THEME["highlight"],
-                 font=("Helvetica", 23, "bold")).pack(anchor="w", padx=24, pady=(24, 4))
-        tk.Label(win, text="LOCAL PREFERENCES  •  CHANGES DO NOT TRANSMIT",
-                 bg=THEME["background"], fg=THEME["text"],
-                 font=("Menlo", 10)).pack(anchor="w", padx=24, pady=(0, 20))
-        for name, var in [("COMMUNITY NAME", self.community),
-                          ("WELCOME MESSAGE  /  LOCAL SETTING", self.welcome)]:
-            tk.Label(win, text=name, bg=THEME["background"],
-                     fg=THEME["highlight"], font=("Helvetica", 11, "bold")).pack(
-                         anchor="w", padx=24, pady=(12, 5))
-            tk.Entry(win, textvariable=var, width=55, bg=THEME["panel"],
-                     fg=THEME["text"], insertbackground=THEME["text"],
-                     relief="flat", font=("Helvetica", 12)).pack(
-                         fill="x", padx=24, ipady=10)
-        tk.Label(win, text="EMPIRE STATE ATTITUDE",
-                 bg=THEME["background"], fg=THEME["highlight"],
-                 font=("Helvetica", 12, "bold")).pack(anchor="w", padx=24, pady=(22, 8))
-        for value, title in [("clean", "CLEAN  /  Classic New York (default)"),
-                             ("spicy", "SPICY  /  A Little Mouthy"),
-                             ("unfiltered", "UNCENSORED  /  Full New York Attitude")]:
-            tk.Radiobutton(win, text=title, variable=self.attitude, value=value,
-                           command=lambda v=value: self.set_attitude(v),
-                           bg=THEME["background"], fg=THEME["text"],
-                           selectcolor=THEME["panel"], anchor="w",
-                           font=("Helvetica", 11)).pack(anchor="w", padx=24, pady=3)
-        tk.Label(win, text="Local preview only. Radio reply integration is pending.",
-                 bg=THEME["background"], fg=THEME["text"],
-                 font=("Helvetica", 10)).pack(anchor="w", padx=24, pady=(12, 6))
-        self.styled_button(win, "SAVE LOCAL SETTINGS", self.save,
-                           THEME["primary"]).pack(anchor="w", padx=24, pady=12)
+        self.log("Server stopped.")
 
     def backup(self):
         DATA.mkdir(parents=True, exist_ok=True)
-        destination = filedialog.asksaveasfilename(defaultextension=".zip",
-                     initialfile="empire-state-backup.zip", filetypes=[("Zip archive", "*.zip")])
+        destination = filedialog.asksaveasfilename(
+            parent=self.root, defaultextension=".zip",
+            initialfile=time.strftime("empire-state-backup-%Y-%m-%d.zip"),
+            filetypes=[("Zip archive", "*.zip")])
         if not destination:
             return
-        with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
-            for path in [CONFIG, ROOT / "config.ini", *ROOT.glob("*.db")]:
-                if path.exists() and path.is_file():
-                    archive.write(path, path.name)
-        self.log("The Archives: backup saved. Treat backups as sensitive; they may contain messages and keys.")
+        # Include the packaged app's data folder as well as a source checkout.
+        candidates = [CONFIG, DATA / "config.ini", ROOT / "config.ini",
+                      *sorted(DATA.glob("*.db")), *sorted(ROOT.glob("*.db"))]
+        written = set()
+        try:
+            with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+                for path in candidates:
+                    if path.exists() and path.is_file() and path.name not in written:
+                        archive.write(path, path.name)
+                        written.add(path.name)
+        except (OSError, zipfile.BadZipFile) as exc:
+            messagebox.showerror("Backup failed", str(exc), parent=self.root)
+            return
+        self.log(f"Backup saved ({len(written)} files). Treat backups as sensitive; "
+                 "they may contain messages and keys.")
+        self.toast(f"Backup saved — {len(written)} file{'s' if len(written) != 1 else ''}")
 
     def close(self):
+        running = bool(self.supervisor and self.supervisor.running)
+        if running and not messagebox.askyesno(
+                "Quit and stop the BBS?",
+                "The BBS server is running. Quitting stops it, and mesh users won't "
+                "reach the BBS until you start it again.", parent=self.root, icon="warning"):
+            return
         self.stop()
         self.root.destroy()
 
@@ -852,6 +1573,8 @@ if __name__ == "__main__":
         app.show_messages()
         app.show_bulletin()
         app.show_locals()
+        for key, *_rest in NAV + NAV_FOOTER:
+            app.navigate(key)
         root.update_idletasks()
         if not app.output.winfo_exists():
             raise RuntimeError("Dashboard failed to initialize")
