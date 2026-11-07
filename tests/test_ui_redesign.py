@@ -151,9 +151,9 @@ class LiveWindowTests(unittest.TestCase):
     def test_hidden_pages_do_not_poll(self):
         page = self.app.page_objects["locals"]
         self.app.navigate("home")
-        with patch.object(self.app.store, "records") as records:
+        with patch.object(self.app.node_directory, "search") as search:
             page.refresh()
-        records.assert_not_called()
+        search.assert_not_called()
 
     def test_theme_change_keeps_log_server_and_page(self):
         supervisor = Mock(running=True)

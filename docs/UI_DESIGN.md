@@ -21,7 +21,7 @@ python scripts/capture_ui_tour.py --theme both --out docs/images/tour
 | Dashboard | Empire HQ | ⌘1 | Server status, start/stop, key metrics, activity log, quick links |
 | Messages | The Grapevine | ⌘2 | Received messages and local drafts; compose, reply, send once |
 | Bulletin | The Bulletin | ⌘3 | Local General-board posts and replies |
-| Locals | Nodes heard | ⌘4 | Passively observed nodes with filter and recent/stale counts |
+| Locals | Nodes heard | ⌘4 | Every node this Mac knows about, beyond the radio's ~100-node list, with search, time-range and source filters |
 | Connection | The Empire Connection | ⌘5 | USB or network radio, test, server start/stop, demo and recovery options, troubleshooting |
 | Radio commands | The Playbook | ⌘6 | Commands mesh users can DM the BBS, with copy buttons |
 | Settings | Control Room | ⌘, | Community, personality, appearance, data and backups |

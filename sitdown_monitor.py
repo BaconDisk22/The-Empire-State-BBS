@@ -13,6 +13,7 @@ import time
 NODE_PATTERN = re.compile(r"Received message from user '([^']+)' \((![0-9a-fA-F]+)\)")
 HEALTH_PATTERN = re.compile(r"^EMPIRE_RADIO_HEALTH (CONNECTING|CHECKING|RESPONSIVE|UNRESPONSIVE|DISCONNECTED|FAILED)$")
 
+RADIO_NODES_PATTERN = re.compile(r"^EMPIRE_RADIO_NODES (\d{1,6})$")
 READY_PATTERN = re.compile(r"(?:BBS is running on|TC²-BBS is running on)", re.I)
 
 
@@ -28,6 +29,7 @@ class ServerSupervisor:
         self.nodes = {}
         self.ready = False
         self.radio_state = None
+        self.radio_nodes = None
         self.stopping = False
 
     def start(self):
@@ -57,6 +59,11 @@ class ServerSupervisor:
                     self.radio_state = health.group(1)
                     self.ready = self.radio_state == "RESPONSIVE"
                     self.events.put(("state", "Radio: " + self.radio_state + " — RF delivery unverified"))
+                counted = RADIO_NODES_PATTERN.fullmatch(line)
+                if counted:
+                    self.radio_nodes = int(counted.group(1))
+                    self.events.put(("radio_nodes", self.radio_nodes))
+                    continue
                 if READY_PATTERN.search(line) and self.radio_state is None:
                     self.ready = True
                     self.events.put(("state", "Server initialized (radio link unverified)"))

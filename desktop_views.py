@@ -13,6 +13,7 @@ from tkinter import messagebox
 
 import empire_ui as ui
 from desktop_session import MAX_PAYLOAD
+from empire_nodedir import details, display_name, heard_via
 
 SPACE = ui.SPACE
 
@@ -430,41 +431,63 @@ class PostsPage:
 
 
 class NodesPage:
-    """The Locals: nodes observed by the radio. Passive; never transmits."""
+    """The Locals: every node this Mac knows about, beyond the radio's ~100. Passive; never transmits."""
+
+    PERIODS = (("hour", "1 hour"), ("day", "24 hours"), ("week", "7 days"), ("all", "All time"))
+    SPANS = {"hour": 3600, "day": 86400, "week": 7 * 86400, "all": None}
+    SOURCES = (("all", "Anywhere"), ("radio", "Radio list"), ("packets", "Heard by this Mac"))
+    LIMIT = 500
 
     def __init__(self, app, parent):
         self.app = app
         self.theme = theme = app.theme
         self.job = None
         self.nodes = []
+        self.total = self.saved = self.in_radio = 0
+        self.latest_list = None
         self.frame = ui.frame(parent, theme)
         head, actions = page_header(
             self.frame, theme, "Locals",
-            "Nodes your radio has heard. This list is passive — nothing is transmitted to discover nodes.",
+            "Every node this Mac has learned about — including ones your radio has forgotten. "
+            "Passive: nothing is transmitted to discover nodes.",
             "The Locals")
         head.pack(fill="x", padx=SPACE["xl"], pady=(SPACE["xl"], SPACE["md"]))
         self.search = tk.StringVar()
         search = ui.Field(actions, theme, "Filter", self.search, bg="bg", width=24)
         search.pack(side="right")
         self.search_entry = search.entry
-        self.search.trace_add("write", lambda *_a: self.render())
+        self.period = tk.StringVar(value="all")
+        self.source = tk.StringVar(value="all")
+        for var in (self.search, self.period, self.source):
+            var.trace_add("write", lambda *_a: self.reload())
+
+        filters = ui.frame(self.frame, theme)
+        filters.pack(fill="x", padx=SPACE["xl"], pady=(0, SPACE["sm"]))
+        ui.Segmented(filters, theme, self.period, self.PERIODS, bg="bg").pack(side="left")
+        ui.Segmented(filters, theme, self.source, self.SOURCES, bg="bg").pack(side="left", padx=(SPACE["md"], 0))
 
         stats = ui.frame(self.frame, theme)
         stats.pack(fill="x", padx=SPACE["xl"])
-        self.stat_total = ui.StatusPill(stats, theme, "0 nodes", "neutral", bg="bg")
+        self.stat_total = ui.StatusPill(stats, theme, "0 saved", "neutral", bg="bg")
         self.stat_total.pack(side="left", padx=(0, SPACE["lg"]))
+        self.stat_radio = ui.StatusPill(stats, theme, "0 in radio list", "info", bg="bg")
+        self.stat_radio.pack(side="left", padx=(0, SPACE["lg"]))
         self.stat_recent = ui.StatusPill(stats, theme, "0 recent", "success", bg="bg")
-        self.stat_recent.pack(side="left", padx=(0, SPACE["lg"]))
-        self.stat_stale = ui.StatusPill(stats, theme, "0 stale", "warning", bg="bg")
-        self.stat_stale.pack(side="left")
+        self.stat_recent.pack(side="left")
+        self.count_line = ui.wrap_to_width(ui.text(self.frame, theme, "", "caption", "text_muted"))
+        self.count_line.pack(anchor="w", fill="x", padx=SPACE["xl"], pady=(SPACE["xs"], 0))
 
         info = ui.Collapsible(self.frame, theme, "What these values mean", bg="bg")
         info.pack(fill="x", padx=SPACE["xl"], pady=(SPACE["sm"], 0))
         for line in (
-            "Last heard is when this Mac received a packet from the node.",
-            "Recent = heard in the last 15 minutes. Stale = 15 minutes or longer.",
-            "SNR and RSSI describe the last received packet, which may have been relayed.",
-            "None of these prove a direct link, distance, or that a node is online now. Records persist across sessions.",
+            "A Meshtastic radio remembers about 100 nodes and forgets the oldest when full. "
+            "This Mac keeps every node it learns about (up to 20,000) in node-directory.db, beside your other data.",
+            "In radio list = in the radio's latest node list. Dropped by radio = the radio has forgotten it; "
+            "this list keeps it. Heard by this Mac = a packet from it reached this Mac.",
+            "Last heard is the newest time from either source. Recent = within 15 minutes.",
+            "SNR, hops and battery come from the last report and may have been relayed. None of these "
+            "prove a direct link, distance, or that a node is online now.",
+            "Only node details are saved here, never message text.",
         ):
             ui.wrap_to_width(ui.text(info.body, theme, "•  " + line, "caption", "text_muted")).pack(
                 anchor="w", fill="x", pady=1)
@@ -474,18 +497,23 @@ class NodesPage:
         self.banner = ui.Banner(self.frame, theme)
         self.banner.place_with(fill="x", padx=SPACE["xl"], pady=(SPACE["sm"], 0), before=self.table_box)
         box, self.listing = ui.treeview(self.table_box, theme, [
-            ('id', 'Node ID', 120, False), ('name', 'Name', 200, True),
-            ('seen', 'Last heard', 150, False), ('age', 'Status', 120, False),
-            ('snr', 'SNR (dB)', 90, False), ('rssi', 'RSSI (dBm)', 100, False),
+            ('name', 'Name', 200, True), ('id', 'Node ID', 110, False),
+            ('seen', 'Last heard', 110, False), ('age', 'Status', 100, False),
+            ('via', 'Heard via', 190, False), ('snr', 'SNR (dB)', 80, False),
+            ('details', 'Details', 220, True),
         ])
         box.pack(fill="both", expand=True)
         self.empty = ui.EmptyState(
-            self.table_box, theme, "locals", "No nodes heard yet",
-            "Start the BBS with your radio connected. Nodes appear here as their packets are received.",
+            self.table_box, theme, "locals", "No nodes yet",
+            "Start the BBS with your radio connected. The radio's node list and every node heard "
+            "will collect here and stay saved on this Mac.",
             ("Open Connection", app.show_radio, "connection"), bg="surface")
 
     def activate(self):
         self.refresh()
+
+    def directory(self):
+        return getattr(self.app, "node_directory", None)
 
     def refresh(self):
         if self.job:
@@ -498,33 +526,48 @@ class NodesPage:
             return
         if getattr(self.app, "current_page", None) not in (None, 'locals'):
             return
+        self.reload(schedule=False)
+        self.job = self.frame.after(2000, self.refresh)
+
+    def reload(self, schedule=False):
+        directory = self.directory()
+        if directory is None:
+            self.nodes, self.total, self.saved = [], 0, 0
+            self.banner.show("The node list file on this Mac could not be opened.", "danger")
+            self.render()
+            return
+        span = self.SPANS.get(self.period.get())
         try:
-            self.nodes = self.app.store.records('nodes')
+            self.total, self.nodes = directory.search(
+                self.search.get(), None if span is None else time.time() - span,
+                self.source.get(), limit=self.LIMIT)
+            self.saved = directory.count()
+            self.latest_list = directory.radio_list_time()
+            self.in_radio = directory.in_radio_list()
             self.banner.clear()
         except (OSError, sqlite3.Error) as exc:
-            self.banner.show('Unable to read observed nodes: ' + str(exc), "danger")
+            self.banner.show('Unable to read the node list: ' + str(exc), "danger")
         self.render()
-        self.job = self.frame.after(2000, self.refresh)
+
+    def rows(self, now):
+        rows, recent = [], 0
+        for node in self.nodes:
+            age = observation_age(node['last_heard'], now)
+            recent += age == 'Recent observation'
+            tone = {'Recent observation': 'success', 'Stale observation': 'warning'}.get(age, 'neutral')
+            status = {'Recent observation': 'Recent', 'Stale observation': 'Stale'}.get(age, 'Unknown')
+            rows.append((node['id'], (
+                display_name(node), node['id'],
+                relative_time(node['last_heard'], now) if age != 'Unknown' else 'Unknown',
+                ui.ICON[ui.TONES[tone][2]] + "  " + status,
+                heard_via(node, self.latest_list),
+                f"{node['snr']:.1f}" if node['snr'] is not None else '—',
+                details(node) or '—')))
+        return rows, recent
 
     def render(self):
         now = time.time()
-        needle = self.search.get().strip().casefold()
-        recent = stale = 0
-        rows = []
-        for node in self.nodes:
-            age = observation_age(node['seen'], now)
-            recent += age == 'Recent observation'
-            stale += age == 'Stale observation'
-            name = node['name'] or 'Unknown'
-            if needle and needle not in str(node['id']).casefold() and needle not in name.casefold():
-                continue
-            tone = {'Recent observation': 'success', 'Stale observation': 'warning'}.get(age, 'neutral')
-            status = {'Recent observation': 'Recent', 'Stale observation': 'Stale'}.get(age, 'Unknown')
-            seen = (relative_time(node['seen'], now) if age != 'Unknown' else 'Unknown')
-            rows.append((str(node['id']), (
-                node['id'], name, seen, ui.ICON[ui.TONES[tone][2]] + "  " + status,
-                node['snr'] if node['snr'] is not None else '—',
-                node['rssi'] if node['rssi'] is not None else '—')))
+        rows, recent = self.rows(now)
         # Update rows in place to preserve selection and scroll position.
         current = set(self.listing.get_children())
         wanted = set()
@@ -540,17 +583,30 @@ class NodesPage:
                 self.listing.insert('', index, iid=node_id, values=values, tags=tags)
         for missing in current - wanted:
             self.listing.delete(missing)
-        total = len(self.nodes)
-        self.stat_total.set(f"{total} node{'s' if total != 1 else ''} heard", "neutral")
+        radio = getattr(self.app, "radio_node_count", None)
+        radio = self.in_radio if radio is None else radio
+        self.stat_total.set(f"{self.saved} saved", "neutral")
+        self.stat_radio.set(f"{radio} in radio list", "info" if radio else "neutral")
         self.stat_recent.set(f"{recent} recent", "success" if recent else "neutral")
-        self.stat_stale.set(f"{stale} stale", "warning" if stale else "neutral")
+        self.count_line.configure(text=nodes_summary(len(rows), self.total, self.saved, radio))
         if rows:
             self.empty.place_forget()
-        elif self.nodes:
+            if self.total > len(rows):
+                self.banner.show(f"Showing the {len(rows)} most recently heard of {self.total}. "
+                                 "Search or narrow the time range to find others.", "info")
+        elif self.saved:
             self.empty.place_forget()
-            self.banner.show(f'No nodes match “{self.search.get().strip()}”.', "info")
+            self.banner.show('No nodes match. Try a longer time range, another source, or a different search.',
+                             "info")
         else:
             self.empty.place(in_=self.table_box, relx=0, rely=0, relwidth=1, relheight=1)
+
+
+def nodes_summary(shown, total, saved, radio):
+    """'X saved on this Mac · your radio holds Y (radios forget the oldest when full; this list keeps them)'."""
+    lead = f"Showing {shown} of {total} · " if total > shown else (f"{total} match · " if total != saved else "")
+    return (f"{lead}{saved} saved on this Mac · your radio holds {radio} "
+            "(radios forget the oldest when full; this list keeps them)")
 
 
 def open_posts(app, kind):

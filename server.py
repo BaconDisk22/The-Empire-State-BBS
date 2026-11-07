@@ -15,6 +15,8 @@ other BBS servers listed in the config.ini file.
 import os
 import sys
 from desktop_session import DesktopStore, RadioSession
+from empire_nodedir import NodeDirectory, peer_id
+import sqlite3
 
 import logging
 import time
@@ -88,9 +90,16 @@ def main():
     watchdog = None
     desktop = None
 
+    directory = open_node_directory()
+
     def receive_packet(packet, interface):
         if desktop:
             desktop.observe(packet)
+        if directory:
+            try:
+                directory.record_packet(packet, own_node_id(interface))
+            except (sqlite3.Error, OSError) as exc:
+                logging.warning("Node directory write failed: %s", exc)
         on_receive(packet, interface)
 
     def health(state):
@@ -116,7 +125,11 @@ def main():
                                    lambda: not stopping.is_set() and (watchdog is None or watchdog.state == "RESPONSIVE"))
             threading.Thread(target=desktop.read_commands, args=(sys.stdin, stopping),
                              daemon=True, name="DesktopCommands").start()
+        next_node_sync = 0.0
         while True:
+            if directory and time.monotonic() >= next_node_sync:
+                next_node_sync = time.monotonic() + NODE_SYNC_SECONDS
+                sync_radio_nodes(directory, interface)
             if watchdog and not watchdog.tick():
                 logging.error("Radio session failed; stopping. Desktop recovery requires opt-in.")
                 return 2
@@ -135,6 +148,53 @@ def main():
             watchdog.close()
         if interface:
             interface.close()
+
+NODE_SYNC_SECONDS = 60
+
+
+def open_node_directory():
+    """The desktop app's own node list (beyond the radio's ~100), when the desktop asked for one."""
+    path = os.environ.get("EMPIRE_NODE_DIRECTORY")
+    if not path:
+        return None
+    try:
+        return NodeDirectory(path)
+    except (sqlite3.Error, OSError) as exc:
+        logging.warning("Node directory unavailable: %s", exc)
+        return None
+
+
+def own_node_id(interface):
+    """This radio's own id, so it is not listed as a heard node."""
+    for value in (getattr(getattr(interface, "myInfo", None), "my_node_num", None),
+                  getattr(getattr(interface, "localNode", None), "nodeNum", None)):
+        if isinstance(value, int) and peer_id(value):
+            return peer_id(value)
+    return None
+
+
+def sync_radio_nodes(directory, interface):
+    """Merge the radio's node list into the directory and report its size to the desktop."""
+    nodes = getattr(interface, "nodes", None)
+    if not isinstance(nodes, dict):
+        return None
+    try:
+        entries = list(nodes.values())
+    except RuntimeError:  # the Meshtastic thread changed the dict mid-copy; next minute will do
+        return None
+    own = own_node_id(interface)
+    try:
+        directory.record_radio(entries, own)
+    except (sqlite3.Error, OSError) as exc:
+        logging.warning("Node directory sync failed: %s", exc)
+        return None
+    count = sum(1 for node in entries if isinstance(node, dict)
+                and (peer_id((node.get("user") or {}).get("id") if isinstance(node.get("user"), dict) else None)
+                     or peer_id(node.get("num"))) not in (None, own))
+    # Dedicated, anchored record like EMPIRE_RADIO_HEALTH; ordinary log lines cannot set it.
+    print(f"EMPIRE_RADIO_NODES {count}", flush=True)
+    return count
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
