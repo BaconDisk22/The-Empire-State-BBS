@@ -277,13 +277,22 @@ def section_header(parent, theme, title, subtitle=None, bg="surface", overline=N
     return box
 
 
+def _pixels(widget, value):
+    """Tk may return screen distances as str, int or Tcl_Obj depending on version."""
+    try:
+        return int(widget.winfo_pixels(str(value) or "0"))
+    except (tk.TclError, ValueError):
+        return 0
+
+
 def wrap_to_width(label, margin=4):
     """Re-wrap a label to its allocated width so text never clips."""
-    if not int(label.cget("wraplength") or 0):
+    if not _pixels(label, label.cget("wraplength")):
         label.configure(wraplength=360)  # modest request; grows to fit on <Configure>
+
     def on_configure(event):
         width = max(event.width - margin, 80)
-        if abs(int(label.cget("wraplength") or 0) - width) > 8:
+        if abs(_pixels(label, label.cget("wraplength")) - width) > 8:
             label.configure(wraplength=width)
     label.bind("<Configure>", on_configure, add="+")
     return label
