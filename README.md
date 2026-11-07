@@ -63,7 +63,7 @@ These steps address macOS security prompts for an unsigned app. If the icon boun
 
 ## NYC command-center dashboard
 
-The dashboard shows the actual server status and radio health, observed node count, uptime, and an activity log. It also has quick links to every section. Messages lists live received text and local drafts, with explicit one-shot sends through the server-owned radio session. Bulletin saves General-board posts and replies locally, and an explicit send submits the selected post as text to one individual node. Locals lists packet observations with recent/stale status and a filter. Demo mode never claims a live connection.
+The dashboard shows the actual server status and radio health, observed node count, uptime, and an activity log. It also has quick links to every section. Messages lists live received text and local drafts, with explicit one-shot sends through the server-owned radio session. Bulletin saves General-board posts and replies locally, and an explicit send submits the selected post as text to one individual node. Locals lists every node the app has learned about, not just the ~100 a Meshtastic radio remembers: the radio's node list is merged every minute and every received packet is noted, all saved in `node-directory.db` beside your other data (node details only, never message text; capped at 20,000). Filter by name or ID, by time (1 hour, 24 hours, 7 days, all time) and by source (radio list or heard by this Mac); the dashboard shows "Known nodes: N (radio holds M)". The BBS's own mesh commands still use the radio's list. Demo mode never claims a live connection.
 
 ## Build verification
 

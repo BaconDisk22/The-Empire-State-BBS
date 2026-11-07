@@ -34,11 +34,27 @@ def seed(store, now):
                    ("s1", "!9c3e11aa", "SAMPLE DATA — Anyone copy from Albany?", now - 240))
         db.execute("UPDATE posts SET state='sent', detail='Submitted to local radio; RF delivery unverified' "
                    "WHERE subject='Net check-in tonight'")
-        for node in [("!9c3e11aa", "Albany Rooftop (sample)", now - 240, 6.5, -92),
-                     ("!4f20bb01", "Beacon Ridge (sample)", now - 600, -3.0, -111),
-                     ("!77e1c0de", "Queens Mobile (sample)", now - 7200, None, None),
-                     ("!0a0b0c0d", "Buffalo Base (sample)", now - 60, 9.25, -78)]:
-            db.execute("INSERT INTO nodes VALUES (?,?,?,?,?)", node)
+
+
+
+def seed_nodes(directory, now):
+    """Sample node list, labelled as samples; one node is 'dropped' from the radio's list."""
+    def node(num, short, long, ago, snr=None, **extra):
+        return {'num': num, 'user': {'id': f'!{num:08x}', 'shortName': short, 'longName': long + ' (sample)',
+                                     'hwModel': extra.pop('hw', '')}, 'lastHeard': int(now - ago), 'snr': snr, **extra}
+    clock = directory.clock
+    directory.clock = lambda: now - 3600
+    directory.record_radio([node(0x77e1c0de, 'QNS', 'Queens Mobile', 7200, None, hw='T_ECHO')])
+    directory.clock = lambda: now
+    directory.record_radio([
+        node(0x9c3e11aa, 'ALB', 'Albany Rooftop', 240, 6.5, hw='HELTEC_V3', hopsAway=0,
+             deviceMetrics={'batteryLevel': 100}),
+        node(0x4f20bb01, 'BCN', 'Beacon Ridge', 600, -3.0, hw='RAK4631', hopsAway=2),
+        node(0x0a0b0c0d, 'BUF', 'Buffalo Base', 60, 9.25, hw='STATION_G2', hopsAway=1,
+             deviceMetrics={'batteryLevel': 76}),
+    ])
+    directory.record_packet({'from': 0x9c3e11aa, 'rxSnr': 6.5, 'rxRssi': -92, 'hopStart': 3, 'hopLimit': 3})
+    directory.clock = clock
 
 
 def capture(root, path):
@@ -66,9 +82,11 @@ def run(theme, out):
         app = sitdown_desktop.SitdownApp(root)
         app.store = DesktopStore(data / "desktop-state.db", data / "bulletins.db")
         seed(app.store, time.time())
+        seed_nodes(app.node_directory, time.time())
+        app.radio_node_count = 3
+        app.refresh_node_count()
         app.demo.set(True)
         app.start()
-        app.node_count.set("Observed nodes: 4")
         app.log("SAMPLE DATA — screenshot tour; no radio connected, nothing transmitted")
         root.lift()
         root.attributes("-topmost", True)

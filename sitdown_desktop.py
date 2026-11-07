@@ -23,6 +23,7 @@ from radio_health import radio_health_label
 from radio_diagnostics import available_serial_ports, check_serial_target, check_tcp_target
 import zipfile
 from desktop_session import DesktopStore
+from empire_nodedir import NodeDirectory, count_label
 from desktop_views import open_posts, open_nodes, PostsPage, NodesPage, page_header
 import empire_ui as ui
 
@@ -73,7 +74,10 @@ class SitdownApp:
         self.restart_at = None
         self.retry_count = 0
         self.auto_restart = tk.BooleanVar(value=False)
-        self.node_count = tk.StringVar(value='Observed nodes: 0')
+        self.node_directory = self.open_node_directory()
+        self.radio_node_count = None
+        self.last_node_count = 0.0
+        self.node_count = tk.StringVar(value=count_label(self.saved_node_count(), None))
         self.uptime = tk.StringVar(value='Uptime: 0s')
         self.demo = tk.BooleanVar(value=False)
         self.attitude = tk.StringVar(value="clean")
@@ -452,7 +456,7 @@ class SitdownApp:
         metrics.grid(row=1, column=0, columnspan=2, sticky="ew", pady=SPACE["md"])
         self.metric_values = {}
         for index, (key, label) in enumerate([("radio", "Radio"), ("link", "Connection"),
-                                              ("nodes", "Nodes heard"), ("uptime", "Uptime")]):
+                                              ("nodes", "Known nodes"), ("uptime", "Uptime")]):
             metrics.columnconfigure(index, weight=1, uniform="metric")
             card = ui.Card(metrics, t, padding="lg")
             card.grid(row=0, column=index, sticky="nsew",
@@ -591,8 +595,10 @@ class SitdownApp:
         self.metric_values["link"][1].configure(text=self.address.get().strip() or
                                                 ("Automatic port discovery" if self.connection.get() == "serial"
                                                  else "No host set"))
-        self.metric_values["nodes"][0].configure(text=self.node_count.get().split(":")[-1].strip() or "0")
-        self.metric_values["nodes"][1].configure(text="This session · see Locals for history")
+        self.metric_values["nodes"][0].configure(text=self.node_count.get().split(":")[-1].split("(")[0].strip() or "0")
+        self.metric_values["nodes"][1].configure(
+            text=(f"Radio holds {self.radio_node_count} · all saved on this Mac" if self.radio_node_count is not None
+                  else "Saved on this Mac · see Locals"))
         seconds = self.uptime.get().split(":")[-1].strip().rstrip("s")
         self.metric_values["uptime"][0].configure(text=ui.humanize_seconds(seconds))
         self.metric_values["uptime"][1].configure(text="Since the server started")
@@ -1471,7 +1477,8 @@ class SitdownApp:
         try:
             self.supervisor = ServerSupervisor(cmd, DATA if getattr(sys, "frozen", False) else ROOT,
                                                env_overrides={"EMPIRE_ATTITUDE": self.attitude.get(),
-                                                              "EMPIRE_DESKTOP_STORE": str(DATA / "desktop-state.db")})
+                                                              "EMPIRE_DESKTOP_STORE": str(DATA / "desktop-state.db"),
+                                                              "EMPIRE_NODE_DIRECTORY": str(DATA / "node-directory.db")})
             self.supervisor.start()
             self.status.set("Starting...")
             self.log("Starting The Empire State BBS...")
@@ -1487,14 +1494,18 @@ class SitdownApp:
             self.watch_serial_ports()
         monitor = self.supervisor
         self.refresh_radio_health()
+        if hasattr(self, "node_count") and now - getattr(self, "last_node_count", 0.0) >= 5.0:
+            self.refresh_node_count()
         if monitor:
             for kind, value in monitor.poll_events():
                 if kind == "log":
                     self.log(value)
                 elif kind == "state":
                     self.status.set(value)
-                elif kind == "node":
-                    self.node_count.set(f"Observed nodes: {len(monitor.nodes)}")
+                elif kind == "radio_nodes":
+                    self.radio_node_count = value
+                    if hasattr(self, "node_count"):
+                        self.refresh_node_count()
             if monitor.running:
                 self.uptime.set(f"Uptime: {monitor.uptime_seconds()}s")
             elif not monitor.stopping and self.restart_at is None:
@@ -1527,6 +1538,34 @@ class SitdownApp:
         self.status.set("Stopped")
         self.uptime.set("Uptime: 0s")
         self.log("Server stopped.")
+
+    # ---------------------------------------------------- node directory
+    def open_node_directory(self):
+        """The app's own node list beside its other data; None if the file cannot be opened."""
+        try:
+            directory = NodeDirectory(DATA / "node-directory.db")
+        except (OSError, sqlite3.Error):
+            return None
+        try:
+            # Nodes heard before the directory existed lived in desktop-state.db; copy them once.
+            directory.import_legacy(self.store.records("nodes"))
+        except (OSError, sqlite3.Error, AttributeError):
+            pass
+        return directory
+
+    def saved_node_count(self):
+        directory = getattr(self, "node_directory", None)
+        if directory is None:
+            return 0
+        try:
+            return directory.count()
+        except (OSError, sqlite3.Error):
+            return 0
+
+    def refresh_node_count(self):
+        """'Known nodes: N (radio holds M)': the suffix appears only when this Mac knows more than the radio."""
+        self.last_node_count = time.monotonic()
+        self.node_count.set(count_label(self.saved_node_count(), getattr(self, "radio_node_count", None)))
 
     def backup(self):
         DATA.mkdir(parents=True, exist_ok=True)
