@@ -11,7 +11,7 @@ Copy `example_config.ini` to `config.ini`, configure your BBS, then run:
 python sitdown_desktop.py
 ```
 
-Use **Demo mode** to explore the UI without connecting a radio. The radio Start/Stop buttons launch and terminate the existing `server.py` process with serial or TCP arguments. This does not modify upstream BBS behavior.
+Use **Demo mode** (Connection › Options) to explore the UI without connecting a radio. The window layout and design system are documented in `docs/UI_DESIGN.md`. The radio Start/Stop buttons launch and terminate the existing `server.py` process with serial or TCP arguments. This does not modify upstream BBS behavior.
 
 **Current limitations:** Server output is not streamed into the GUI; 'Server running' means the process is alive, **not** that the radio is connected. Custom welcome text is saved locally but not yet served over radio. Backup creates a ZIP; restore is not implemented. The desktop launcher is not yet packaged as a signed, click-to-open Mac app.
 

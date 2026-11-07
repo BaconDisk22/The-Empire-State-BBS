@@ -20,17 +20,19 @@ This project represents **all of New York State**, not just New York City: Weste
 
 [View the full-size dashboard screenshot](docs/images/desktop-preview-demo.png)
 
-The app uses a charcoal and orange NYC command-center theme with a skyline header, legible dashboard controls and matching Grapevine, Bulletin, Locals and Settings windows. Navigation shortcuts on Intel Mac: **⌘1** HQ, **⌘2** Grapevine, **⌘3** Bulletin, **⌘4** Locals, **⌘5** Connection, and **⌘,** Settings.
+The app is a single window with a sidebar: **Dashboard** (Empire HQ), **Messages** (The Grapevine), **Bulletin**, **Locals**, **Connection**, **Radio commands** (The Playbook), **Settings** and **About**. It has light and dark themes (or follows macOS), adjustable text size, and a native menu bar. Shortcuts on Intel Mac: **⌘1** Dashboard, **⌘2** Messages, **⌘3** Bulletin, **⌘4** Locals, **⌘5** Connection, **⌘6** Radio commands, **⌘,** Settings, and **⌘N** for a new message.
 
-### Visual palette
+More pages, in both themes and with labelled sample data, are in [`docs/images/tour`](docs/images/tour). The design system is described in [`docs/UI_DESIGN.md`](docs/UI_DESIGN.md).
+
+### Visual palette (dark theme)
 
 | Element | Color |
 | --- | --- |
-| Background | `#090B10` |
-| Panels | `#171A22` |
-| NYC orange accent | `#FF791F` |
-| Primary text | `#F5F1E9` |
-| Active connection indicator | `#44DF79` |
+| Background | `#0E1015` |
+| Surfaces | `#171A21` |
+| Crown-orange accent | `#FF8A3D` |
+| Primary text | `#F2EFE9` |
+| Running / success | `#4ADE80` |
 
 ## Implementation and next steps
 
@@ -61,7 +63,7 @@ These steps address macOS security prompts for an unsigned app. If the icon boun
 
 ## NYC command-center dashboard
 
-The Mac launcher uses a dark charcoal and NYC-orange statewide New York command-center dashboard with an original skyline app icon. Panels show actual process status, observed nodes, server logs, radio configuration and local attitude controls. The Grapevine shows live received text, persistent local messages, and explicit one-shot sends through the server-owned radio session. The Bulletin saves General-board posts and replies locally; an explicit send submits the selected post as text to one individual node. The Locals shows packet observations and last-seen times. Demo mode never claims a live connection. The visual concept is not a screenshot of a working radio session.
+The dashboard shows the actual server status and radio health, observed node count, uptime, and an activity log. It also has quick links to every section. Messages lists live received text and local drafts, with explicit one-shot sends through the server-owned radio session. Bulletin saves General-board posts and replies locally, and an explicit send submits the selected post as text to one individual node. Locals lists packet observations with recent/stale status and a filter. Demo mode never claims a live connection.
 
 ## Build verification
 
